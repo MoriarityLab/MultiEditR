@@ -10,7 +10,7 @@ The purpose of this software is to detect multiple nucleic acid editing events f
 
 If our software helps you -- please cite us!
 
-Mitchell Kluesner, Annette Arnold, Taga Lerner, Rafail Nikolaos Tasakis, Sandra Wüst, Marco Binder, Branden Moriarity, and Riccardo Pecori **MultiEditR:  An easy validation method for detecting and quantifying RNA editing from Sanger sequencing* *Biorxiv*
+Mitchell Kluesner, Annette Arnold, Taga Lerner, Rafail Nikolaos Tasakis, Sandra Wüst, Marco Binder, Branden Moriarity, and Riccardo Pecori **MultiEditR:  An easy validation method for detecting and quantifying RNA editing from Sanger sequencing** *Biorxiv*
 
 ## Running the prediction software
 
