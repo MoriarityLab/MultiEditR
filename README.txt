@@ -27,3 +27,5 @@ library(shiny)
 shiny::runApp(“/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/app”)
 
 5) The application should launch and be used interactively
+
+Upon submission of the MultiEditR manuscript to a journal, the web application will be live at https://moriaritylab.shinyapps.io/MultiEditR
