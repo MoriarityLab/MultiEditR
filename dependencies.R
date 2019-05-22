@@ -14,6 +14,7 @@
 
 # CRAN packages
 install.packages("shiny")
+install.packages("tidyverse")
 install.packages("magrittr")
 install.packages("dplyr")
 install.packages("tidyr")
