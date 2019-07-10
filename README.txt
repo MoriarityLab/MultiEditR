@@ -24,7 +24,7 @@ library(shiny)
 
 4) Copy, paste, and run the following line of code in your R command line, using the specific directory of the MultiEditR app on your computer:
 
-shiny::runApp(“/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/app”)
+shiny::runApp(“/Users/kluesner/Downloads/MultiEditR-master”)
 
 5) The application should launch and be used interactively
 
