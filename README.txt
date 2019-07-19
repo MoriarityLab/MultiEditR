@@ -4,6 +4,9 @@ Hello! Welcome to MultiEditR! We hope that our program can be of use for your ed
 
 However, if you are noticing any errors when using the application please feel free to reach out Mitch at klues009@umn.edu for troubleshooting and input on the application.
 
+To run this program online visit this webpage:
+https://moriaritylab.shinyapps.io/multieditr
+
 To run this program locally please do the following:
 
 1) Download and install R (https://www.r-project.org/)
