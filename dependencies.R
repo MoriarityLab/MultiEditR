@@ -14,11 +14,11 @@
 
 # CRAN packages
 install.packages("shiny")
-install.packages("tidyverse")
 install.packages("magrittr")
 install.packages("dplyr")
 install.packages("tidyr")
 install.packages("ggplot2")
+install.packages("plotly")
 install.packages("grr")
 install.packages("printr")
 install.packages("plyr")
@@ -26,22 +26,18 @@ install.packages("readr")
 install.packages("rmarkdown")
 install.packages("readr")
 install.packages("gamlss")
-install.packages("BiocInstaller")
+install.packages("BiocManager")
+install.packages("DT")
+install.packages("grDevices")
 
 # Bioconductor packages
 # Updated 4.7.19 due to error with Bioconductor packages
 # Updated again 4.30.19
 # Run this code chunk in terminal first
 #
-  # options(repos = BiocInstaller::biocinstallRepos())
+  # options(repos = BiocManager::repositories())
   # source("https://bioconductor.org/biocLite.R")
 #
 
-BiocInstaller::biocLite("Biostrings")
-BiocInstaller::biocLite("sangerseqR")
-
-
-
-
-
-
+BiocManager::install("Biostrings")
+BiocManager::install("sangerseqR")
