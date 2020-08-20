@@ -9,7 +9,7 @@
 # multiEditR publication
 ###########################################################################################
 
-### Example data
+##### Example data ----------------------------------------------------------------
 example_sample = "RP272_cdna_wt.ab1"
 example_control = "RP272_cdna_ko.ab1"
 example_control_fasta = "RP272_cdna_ko.fasta"
@@ -17,16 +17,16 @@ example_motif = "YAR"
 example_wt = "A"
 example_edit = "G"
 example_use_ctrl_seq = FALSE
+example_phred = 0.0001
 
-### Source helper functions
-source("helpers.R")
-
-### Server function
+##### Server function -------------------------------------------------------------
 shinyServer(
   function(input, output) {
-
-    # Establish reactive input functions
-    sampleReactive = reactive({
+    
+    ##### Establish reactive input functions --------------------------------------
+    # These reactive functions are used as the inputs for the analysis
+    
+    sample.Reactive = reactive({
       # if else things to handle example data loading
       if(input$use_example) {
         return(example_sample)
@@ -36,21 +36,24 @@ shinyServer(
         need(input$sample_file, "Please upload your sanger sequence sample file")
       ))
     })
-
-    ctrlReactive = reactive({
+    
+    ctrl.Reactive = reactive({
       # if else things to handle example data loading
       if(input$use_example) {
-        return(example_control)
+        if(input$use_fasta){
+          return(example_control_fasta)
+        } else
+          return(example_control)
       } else if(!is.null(input$ctrl_file)) {
         return(input$ctrl_file$datapath)
       } else return(validate(
         need(input$ctrl_file, "Please upload your control sequence file")
       ))
     })
-
-    motifReactive = reactive({
+    
+    motif.Reactive = reactive({
       # if else things to handle example data loading
-      if(input$use_example) {
+      if(input$use_example & (input$motif == "")) {
         return(example_motif)
       } else if(!is.null(input$motif)) {
         return(input$motif)
@@ -58,10 +61,10 @@ shinyServer(
         need(input$motif, "Please enter a motif of interest")
       ))
     })
-
-    wtReactive = reactive({
+    
+    wt.Reactive = reactive({
       # if else things to handle example data loading
-      if(input$use_example) {
+      if(input$use_example & (input$wt == "")) {
         return(example_wt)
       } else if(!is.null(input$wt)) {
         return(input$wt)
@@ -69,10 +72,10 @@ shinyServer(
         need(input$wt, "Please enter a wt base of interest")
       ))
     })
-
-    editReactive = reactive({
+    
+    edit.Reactive = reactive({
       # if else things to handle example data loading
-      if(input$use_example) {
+      if(input$use_example & (input$wt == "")) {
         return(example_edit)
       } else if(!is.null(input$edit)) {
         return(input$edit)
@@ -81,51 +84,512 @@ shinyServer(
       ))
     })
     
-    # Generate data for app
-    # Run the runEditR function to generate all data
-    output_data = reactive({
-      input$actionButton
-      isolate(
-      runEditR(sample_file =  sampleReactive() , # have to use a weird work around of calling the first slot in the list containing the sample name...
-               ctrl_file = ctrlReactive(), #input$ctrl_file,
-               motif = motifReactive(), #input$motif,
-               wt = wtReactive(), #input$wt,
-               edit = editReactive(),
-               use_ctrl_seq = input$use_fasta,
-               phred_cutoff = input$phred,
-               p_value = input$p_value) # use double brackets to access slot needed else
-    )
+    ##### Begin computations ----------------------------------------------------
+    
+    #### Establish control sample information -----------------------------------
+    # Reactive ctrl sanger object, only if using a fasta is NOT specified
+    ctrl_sanger.Reactive = reactive(
+      if(!input$use_fasta)
+      {readsangerseq(ctrl.Reactive())} else
+      {NULL})
+    
+    # Reactive ctrl df object, handled differently for a fasta vs sanger input
+    ctrl_df.Reactive = reactive({
+      if(input$use_fasta)
+      {make_ctrl_fasta_df(ctrl.Reactive())} else
+      {make_ctrl_sanger_df(ctrl_sanger.Reactive())}
     })
-
-    # As soon as this reactive function is called the whole program comes to a stand still once deployed.
-    # Could then try truncating the function and seeing where it starts breaking.
-    output$table1 = renderTable({
-      output_data()[[1]] #1
+    
+    # Reactive ctrl initial sequence
+    init_ctrl_seq.Reactive = reactive({
+      ctrl_df.Reactive()$base_call %>% paste0(., collapse = "")
     })
-
-    output$table2 = renderTable({
-      output_data()[[5]] #2
+    
+    # Reactive ctrl fastq
+    ctrl_fastq.Reactive = reactive({
+      if(input$use_fasta)
+      {ctrl_fastq = list(); ctrl_fastq$seq = init_ctrl_seq.Reactive(); return(ctrl_fastq)} else
+        # Genereate phred scores for ctrl and samp, trimming is built in using mott's algorithm
+      {abif_to_fastq(path = ctrl.Reactive(), cutoff = input$phred)}
     })
-
-    output$plot1 = renderPlot({
-      output_data()[[2]] #3
+    
+    # Reactive ctrl alignment
+    ctrl_alignment.Reactive = reactive({
+      pairwiseAlignment(pattern = ctrl_fastq.Reactive()$seq, subject = init_ctrl_seq.Reactive())
     })
-
-    output$plot2 = renderPlot({
-      output_data()[[3]] #4
+    
+    #### Establish treatment sample information -----------------------------------
+    # Reactive sample sanger object
+    sample_sanger.Reactive = reactive({readsangerseq(sample.Reactive())})
+    
+    # Reactive sample df object
+    sample_df.Reactive = reactive({
+      make_samp_sanger_df(sample_sanger.Reactive(), init_ctrl_seq.Reactive())
     })
-
-    output$plot3 = renderPlot({
-      output_data()[[4]] #5
+    
+    # Reactive sample initial sequence
+    init_sample_seq.Reactive = reactive({
+      sample_df.Reactive()$primary_base_call %>% paste0(., collapse = "")
     })
-
-    output$downloadData <- downloadHandler(
+    
+    # Reactive sample fastq object
+    # Genereate phred scores for ctrl and samp, trimming is built in using mott's algorithm
+    sample_fastq.Reactive = reactive({
+      abif_to_fastq(path = sample.Reactive(), cutoff = input$phred)
+    })
+    
+    # Reactive sample alignment
+    sample_alignment.Reactive = reactive({
+      pairwiseAlignment(pattern = sample_fastq.Reactive()$seq, subject = init_sample_seq.Reactive())
+    })
+    
+    #### Filter dataframes on phred score -------------------------------------
+    # Reactive object containing the phred trimmed data
+    filteredData.Reactive = reactive({
+      
+      # trim sample dataframe on regions of phred filtering
+      sample_df = sample_df.Reactive() %>% 
+        filter(index >= sample_alignment.Reactive()@subject@range@start) %>%
+        filter(index <= sample_alignment.Reactive()@subject@range@start +
+                 sample_alignment.Reactive()@subject@range@width - 1) %>%
+        mutate(post_filter_index = 1:NROW(index))
+      
+      # trim control dataframe on regions of phred filtering
+      ctrl_df = ctrl_df.Reactive() %>% 
+        filter(index >= ctrl_alignment.Reactive()@subject@range@start) %>%
+        filter(index <= ctrl_alignment.Reactive()@subject@range@start +
+                 ctrl_alignment.Reactive()@subject@range@width - 1) %>%
+        mutate(post_filter_index = 1:NROW(index))
+      
+      # Regenerate primary basecalls
+      ctrl_seq = ctrl_df$base_call %>% paste0(., collapse = "")
+      sample_seq = sample_df$max_base %>% paste0(., collapse = "")
+      
+      # Save the pre-cross alignment dataframes
+      pre_cross_align_sample_df = sample_df
+      pre_cross_align_ctrl_df = ctrl_df
+      
+      # Return a list containing the information for downstream computation
+      return(list("sample_df" = sample_df,
+                  "ctrl_df" = ctrl_df,
+                  "ctrl_seq" = ctrl_seq,
+                  "sample_seq" = sample_seq,
+                  "pre_cross_align_sample_df" = pre_cross_align_sample_df)
+      )
+    })
+    
+    #### Trim dataframes by aligning sample to control ------------------------
+    # Reactive object with trimmed sample and control dataframes
+    trimmedData.Reactive = reactive({
+      
+      # Align sample_seq to ctrl_seq
+      trimmed_alignment = align_and_trim(
+        filteredData.Reactive()$sample_seq,
+        filteredData.Reactive()$ctrl_seq,
+        min_continuity = 15)
+      
+      samp_alignment_seq = trimmed_alignment$alignment@pattern %>% as.character()
+      ctrl_alignment_seq = trimmed_alignment$alignment@subject %>% as.character()
+      
+      # Align the trimmed sequences to the sequences from the data frame
+      sample_trimmed_alignment = pairwiseAlignment(pattern = trimmed_alignment$pattern,
+                                                   subject = filteredData.Reactive()$sample_seq,
+                                                   gapOpening = 1000,
+                                                   gapExtension = 1000,
+                                                   type = "local")
+      
+      ctrl_trimmed_alignment = pairwiseAlignment(pattern = trimmed_alignment$subject,
+                                                 subject = filteredData.Reactive()$ctrl_seq,
+                                                 gapOpening = 1000,
+                                                 gapExtension = 1000,
+                                                 type = "local")
+      
+      # Add predicted values from GBM
+      # This will likely be deprecated (07.12.2019)
+      sample_df = filteredData.Reactive()$sample_df %>%
+        dplyr::select(-(A_area:max_base_height), -post_filter_index, index) %>%
+        bind_rows(., ., ., .) %>%
+        mutate(base = rep(ACGT, each = NROW(index)/4), max_base = base) %>%
+        mutate_if(is.character, nucleotide_factor) %>%
+        mutate(eta = 1) %>%
+        dplyr::select(-base) %>%
+        spread(max_base, eta) %>%
+        inner_join(filteredData.Reactive()$sample_df, .) %>%
+        dplyr::rename(A_eta = A, C_eta = C, G_eta = G, T_eta = `T`) %>%
+        mutate(pred_height = {ifelse(max_base == "A", A_eta,
+                                     ifelse(max_base == "C", C_eta,
+                                            ifelse(max_base == "G", G_eta,
+                                                   ifelse(max_base == "T", `T_eta`,NA))))}) %>%
+        dplyr::select(A_area:T_perc,
+                      max_base, Tot.Area, index, max_base_height, post_filter_index, A_eta:T_eta, pred_height)
+      
+      # Filter the sample dataframe on the end trimming alignment
+      sample_df %<>%
+        filter(post_filter_index >= sample_trimmed_alignment@subject@range@start) %<>%
+        filter(post_filter_index <= sample_trimmed_alignment@subject@range@start + sample_trimmed_alignment@subject@range@width - 1) %>%
+        mutate(post_aligned_index = 1:NROW(index))
+      
+      # Filter the control dataframe on the end trimming alignment
+      ctrl_df = filteredData.Reactive()$ctrl_df %>%
+        filter(post_filter_index >= ctrl_trimmed_alignment@subject@range@start) %<>%
+        filter(post_filter_index <= ctrl_trimmed_alignment@subject@range@start + ctrl_trimmed_alignment@subject@range@width - 1) %>%
+        mutate(post_aligned_index = 1:NROW(index))
+      
+      ### Generate post-filter, post-aligned sequence
+      ctrl_seq = ctrl_df$base_call %>% paste0(., collapse = "")
+      samp_seq = sample_df$max_base %>% paste0(., collapse = "")
+      
+      ### Save a df for NGS analysis
+      pre_aligned_sample_df = sample_df
+      
+      ### Filter out any base positons that have an indel
+      samp_indel = samp_alignment_seq %>% gregexpr("-", .) %>% unlist
+      ctrl_indel = ctrl_alignment_seq %>% gregexpr("-", .) %>% unlist
+      
+      ### Code added 10.27.18, as when there is no indels in one sample it returned a -1 instead of 0, which introduced an error
+      if(samp_indel == -1){samp_indel = 0} else {}
+      if(ctrl_indel == -1){ctrl_indel = 0} else {}
+      
+      ctrl_df = ctrl_df %>%
+        mutate(.,
+               indel_filter = ctrl_alignment_seq %>%
+                 subchar(., samp_indel, "_") %>%
+                 gsub("-", "", .) %>%
+                 strsplit(x = ., split = "") %>%
+                 .[[1]]
+        ) %>%
+        filter(indel_filter != "_") %>%
+        dplyr::select(-indel_filter) %>%
+        mutate(filtered_index = 1:NROW(max_base))
+      
+      sample_df = sample_df %>%
+        mutate(.,
+               indel_filter = samp_alignment_seq %>%
+                 subchar(., ctrl_indel, "_") %>%
+                 gsub("-", "", .) %>%
+                 strsplit(x = ., split = "") %>%
+                 .[[1]]
+        ) %>%
+        filter(indel_filter != "_") %>%
+        dplyr::select(-indel_filter) %>%
+        mutate(filtered_index = 1:NROW(max_base)) %>%
+        mutate(ctrl_post_aligned_index = ctrl_df$post_aligned_index)
+      
+      # join the initial ctrl index to the sample to give a reference
+      sample_df = ctrl_df %>%
+        dplyr::select(post_aligned_index, index) %>%
+        dplyr::rename(ctrl_post_aligned_index = post_aligned_index, ctrl_index = index) %>%
+        inner_join(., sample_df)
+      
+      # Assign the sample and ctrl file names
+      sample_df %<>% mutate(sample_file = sample.Reactive(), ctrl_file = ctrl.Reactive())
+      ctrl_df %<>% mutate(sample_file = sample.Reactive(), ctrl_file = ctrl.Reactive())
+      
+      # Return a list containing the information for downstream computation
+      return(list("sample_df" = sample_df,
+                  "ctrl_df" = ctrl_df,
+                  "ctrl_seq" = ctrl_seq,
+                  "pre_aligned_sample_df" = pre_aligned_sample_df)
+      )
+    })
+    
+    #### Isolate motifs and begin statistical tests ---------------------------
+    
+    statisticalAnalysis.Reactive = reactive({
+      
+      # Align the motif of interest to the ctrl_seq
+      # In reality this is matching, not alignment
+      motif_alignment = matchPattern(pattern = DNAString(motif.Reactive()),
+                                     subject = DNAString(trimmedData.Reactive()$ctrl_seq),
+                                     fixed = FALSE)
+      
+      # Count the number of motif matches found
+      n_alignments = motif_alignment@ranges %>% length()
+      
+      # Find the motif positions
+      motif_positions = mapply(FUN = seq,
+                               from = motif_alignment@ranges@start,
+                               to = (motif_alignment@ranges@start + nchar(motif.Reactive()) - 1)) %>%
+        as.vector()
+      
+      # Name the motif positions
+      names(motif_positions) = rep(x = c(1:n_alignments), each = nchar(motif.Reactive()))
+      
+      motif_positions = data.frame(ctrl_post_aligned_index = motif_positions, motif_id = names(motif_positions))
+      
+      
+      
+      # Append the sequences from the ctrl df to the sample df
+      sample_df = trimmedData.Reactive()$sample_df %>%
+        mutate(ctrl_max_base = trimmedData.Reactive()$ctrl_df$max_base,
+               ctrl_base_call = trimmedData.Reactive()$ctrl_df$base_call
+        ) %>%
+        # Add a column for the percent base for the ctrl basecall
+        mutate(ctrl_max_base_perc = {ifelse(ctrl_max_base == "A", A_perc,
+                                            ifelse(ctrl_max_base == "C", C_perc,
+                                                   ifelse(ctrl_max_base == "G", G_perc,
+                                                          ifelse(ctrl_max_base == "T", T_perc,0))))})
+      
+      # Generate null and alternative samples for distribution
+      # Perform for both the sample df
+      
+      # This dataframe consists of all bases in the sample where the motif is not found in the ctrl sequence
+      sample_null = sample_df %>%
+        filter(!(ctrl_post_aligned_index %in% motif_positions$ctrl_post_aligned_index)) 
+      
+      # This dataframe consists of all bases in the sample where the motif is found in the ctrl sequence
+      sample_alt = motif_positions %>%
+        inner_join(., sample_df)
+      
+      # Find all potential events of significant noise
+      filtered_sample_alt = sample_alt %>%
+        filter(grepl(wt.Reactive(), ctrl_max_base)) %>% # Use the ctrl wt base for determining data
+        dplyr::rename(A = A_area, C = C_area, G = G_area, `T` = T_area) %>%
+        gather(base, height, A:`T`) %>%
+        filter(grepl(edit.Reactive(), base)) # Filter out hypothetical mutations that are not of interest
+      
+      # Adjust p-value
+      n_comparisons = NROW(filtered_sample_alt)
+      # Holm-sidak correction, may need to use the smirnov correction for family-wise error rates
+      # Will need to read original paper and cite appropriately
+      if(input$adjust_p == TRUE)
+      {p_adjust = 1-((1-input$p_value)^(1/n_comparisons))} else
+      {p_adjust = input$p_value}
+      
+      # Generate zG models for each base
+      # uses the sample_null to calculate
+      zaga_parameters = make_ZAGA_df(sample_null, p_adjust = p_adjust)
+      critical_values = zaga_parameters$crit
+      
+      ### Find significant edits and then apply the GBM adjustments
+      # Determine which values are significant
+      # Keep significant values and replace all n.s. values with NA
+      # Use the significant values to calculated an adjusted height using formula 1
+      # Find all significant edits
+      # Will need to deprectate the GBM adjustment eventually
+      output_sample_alt = gbm_adjust(sample_alt,
+                                     wt.Reactive(),
+                                     edit.Reactive(),
+                                     motif.Reactive(),
+                                     sample.Reactive(),
+                                     critical_values)
+      
+      # Calculate the EI_index for each base
+      sanger_EI = output_sample_alt %>%
+        # group_by(ctrl_max_base) %>%
+        # dplyr::summarise(sum_A_perc = sum(A_perc),
+        #                  sum_C_perc = sum(C_perc),
+        #                  sum_G_perc = sum(G_perc),
+        #                  sum_T_perc = sum(T_perc)) %>%
+        # dplyr::ungroup() %>%
+        # dplyr::mutate(AEI_sanger = (sum_G_perc / ((!! sym(paste0("sum_", wt.Reactive(), "_perc"))) + sum_G_perc)),
+        #               CEI_sanger = (sum_T_perc / ((!! sym(paste0("sum_", wt.Reactive(), "_perc"))) + sum_T_perc)),
+        #               GEI_sanger = (sum_A_perc / ((!! sym(paste0("sum_", wt.Reactive(), "_perc"))) + sum_A_perc)),
+        #               TEI_sanger = (sum_C_perc / ((!! sym(paste0("sum_", wt.Reactive(), "_perc"))) + sum_C_perc))
+        # )
+        
+        dplyr::group_by(ctrl_max_base) %>% # technically shouldn't change anything as it's the same across samples
+        dplyr::mutate(AEI_sanger = (sum(G_perc) / (sum(!! sym(paste0(wt.Reactive(), "_perc"))) + sum(G_perc))),
+                      CEI_sanger = (sum(T_perc) / (sum(!! sym(paste0(wt.Reactive(), "_perc"))) + sum(T_perc))),
+                      GEI_sanger = (sum(A_perc) / (sum(!! sym(paste0(wt.Reactive(), "_perc"))) + sum(A_perc))),
+                      TEI_sanger = (sum(C_perc) / (sum(!! sym(paste0(wt.Reactive(), "_perc"))) + sum(C_perc)))
+        ) %>%
+        dplyr::select(AEI_sanger:TEI_sanger) %>%
+        dplyr::distinct() %>%
+        ungroup() %>%
+        # Keep only the EI_index for each reference base
+        gather(EI_base, EI_sanger, AEI_sanger:TEI_sanger) %>%
+        mutate(EI_base = gsub("EI_sanger", "", EI_base)) %>%
+        dplyr::select(EI_base, EI_sanger)  %>%
+        dplyr::rename(Edit =  EI_base, MEEI = EI_sanger) %>%
+        filter(grepl(wt.Reactive(), Edit)) %>%
+        distinct()
+      
+      return(
+        list("sample_df" = sample_df,
+             "sample_alt" = sample_alt,
+             "output_sample_alt" = output_sample_alt,
+             "zaga_parameters" = zaga_parameters,
+             "motif_positions" = motif_positions,
+             "sanger_EI" =  sanger_EI)
+      )
+    })
+    
+    #### Calculate values for plotting ----------------------------------------
+    
+    editingData.Reactive = reactive({
+      calculateEditingData(
+        statisticalAnalysis.Reactive()$output_sample_alt,
+        edit.Reactive())
+    })
+    
+    #### Render outputs -------------------------------------------------------
+    
+    # ### Checking ctrl data ----------------------------------------------------
+    # # ctrl sanger names
+    # output$ctrl_sanger = renderPrint({ctrl_sanger.Reactive()})
+    # 
+    # # ctrl df
+    # output$ctrl_df = renderPrint({head(ctrl_df.Reactive())})
+    # 
+    # # init_ctrl_seq
+    # output$init_ctrl_seq = renderPrint({init_ctrl_seq.Reactive()})
+    # 
+    # # ctrl_fastq
+    # output$ctrl_fastq = renderPrint({as.character(ctrl_fastq.Reactive()$seq)})
+    # 
+    # # ctrl_alignment
+    # output$ctrl_alignment = renderPrint(ctrl_alignment.Reactive())
+    # 
+    # ### Checking sample data ----------------------------------------------------
+    # # sample sanger names
+    # output$sample_sanger = renderPrint({sample_sanger.Reactive()})
+    # 
+    # # sample df
+    # output$sample_df = renderPrint({head(sample_df.Reactive())})
+    # 
+    # # init_sample_seq
+    # output$init_sample_seq = renderPrint({init_sample_seq.Reactive()})
+    # 
+    # # sample_fastq
+    # output$sample_fastq = renderPrint({as.character(sample_fastq.Reactive()$seq)})
+    # 
+    # # sample_alignment
+    # output$sample_alignment = renderPrint(sample_alignment.Reactive())
+    # 
+    # ### Checking computation data ----------------------------------------------------
+    # # Phred filtered data
+    # output$filteredData = renderPrint({filteredData.Reactive()})
+    # 
+    # # End trimmed data
+    # output$trimmedData = renderPrint({trimmedData.Reactive()})
+    # 
+    # # Statistical data
+    output$rawData = DT::renderDataTable({
+      statisticalAnalysis.Reactive()$output_sample_alt %>%
+        mutate(A = round(A_perc*100),
+               C = round(C_perc*100),
+               G = round(G_perc*100),
+               `T` = round(T_perc*100)
+        ) %>%
+        dplyr::select(index, ctrl_index, max_base, A:`T`, A_sig:T_sig, motif, sample_file)
+      })
+    
+    # Render .csv file from dataTable
+    output$downloadRawData <- downloadHandler(
       filename = function() {
-        paste(input$sample_name, ".tsv", sep = "")
+        paste(sample.Reactive(), "rawData.tsv", sep = "_") %>%
+          gsub("[.]ab1|[.]AB1|[.]abif|[.]ABIF", "", .)
       },
       content = function(file) {
-        write_tsv(output_data()[[6]], file) #6
+        readr::write_tsv(statisticalAnalysis.Reactive()$output_sample_alt %>%
+                           mutate(A = round(A_perc*100),
+                                  C = round(C_perc*100),
+                                  G = round(G_perc*100),
+                                  `T` = round(T_perc*100)
+                           ) %>%
+                           dplyr::select(index, ctrl_index, max_base, A:`T`, A_sig:T_sig, motif, sample_file)
+                         , file)
       }
     )
+    
+    ### Plotting data ----------------------------------------------------------------
+    
+    ## Plot percent signal of raw sample
+    output$plotRawSample = renderPlot({
+      plotRawSample(
+        sample_df.Reactive(),
+        statisticalAnalysis.Reactive()$sample_alt,
+        filteredData.Reactive()$pre_cross_align_sample_df
+      )
+    })
+    
+    ## Plot percent noise of trimmed sample
+    output$plotTrimmedSample = renderPlotly({
+      plotTrimmedSample(
+        statisticalAnalysis.Reactive()$sample_df,
+        filteredData.Reactive()$pre_cross_align_sample_df,
+        statisticalAnalysis.Reactive()$output_sample_alt,
+        sample_df.Reactive()
+      )
+    })
+    
+    ## Plot summary of editing data
+    output$plotEditingData = renderPlot({
+      plotEditingData(editingData.Reactive())
+    })
+    
+    ## Render table summarizing editing data
+    output$tableEditingData = renderTable({
+      tableEditingData(editingData.Reactive())
+    })
+    
+    ## Render table summarizing editing data
+    output$tableEditingIndexData = renderTable({
+      statisticalAnalysis.Reactive()$sanger_EI
+    })
+    
+    ## Render table with ZAGA parameters for bases of interest
+    output$tableZAGAParameters = renderTable({
+      statisticalAnalysis.Reactive()$zaga_parameters %>%
+        filter(grepl(edit.Reactive(), Base))
+    })
+    
+    ## Render plot of sample chromatogram
+    output$sampleChromatogram = renderPlot({
+      
+      sample_indices = statisticalAnalysis.Reactive()$sample_alt %>%
+        filter(motif_id == input$motif_id) %>%
+        #filter(motif_id == event_data("plotly_click", source = "select")) %>%
+        .$index %>%
+        quantile(., c(0,1))
+
+      sampleChromatogram.Plot = sample_sanger.Reactive() %>%
+        # geom_chromotagram:
+        # inputs a sanger object and the start and end indices of interest
+        # returns a ggplot object consisting of the trace and the percent bases of interest
+        geom_chromatogram(., sample_indices[1] - input$pad, sample_indices[2] + input$pad)
+      
+      return(sampleChromatogram.Plot)
+      
+    })
+    
+    ## Render plot of control chromatogram
+    output$ctrlChromatogram = renderPlot({
+      
+      ctrl_indices = statisticalAnalysis.Reactive()$sample_alt %>%
+        filter(motif_id == input$motif_id) %>%
+        #filter(motif_id == event_data("plotly_click", source = "select")) %>%
+        .$ctrl_index %>%
+        quantile(., c(0,1))
+      
+      if(!input$use_fasta) {
+        ctrlChromatogram.Plot = ctrl_sanger.Reactive() %>%
+          # geom_chromotagram:
+          # inputs a sanger object and the start and end indices of interest
+          # returns a ggplot object consisting of the trace and the percent bases of interest
+          geom_chromatogram(., ctrl_indices[1] - input$pad, ctrl_indices[2] + input$pad)
+      } else {ctrlChromatogram.Plot = NULL}
+      
+      return(ctrlChromatogram.Plot)
+      
+    })
+    
+    ## Render plot of the trimmed sample for indexing motifs
+    output$plotTrimmedSample2 = renderPlotly({
+      plotTrimmedSample(
+        statisticalAnalysis.Reactive()$sample_df,
+        filteredData.Reactive()$pre_cross_align_sample_df,
+        statisticalAnalysis.Reactive()$output_sample_alt,
+        sample_df.Reactive()
+      )
+    })
+    
+    ## Render table of sample data for plotting
+    output$print = renderPrint(event_data("plotly_click", source = "select"))
+    
+    ## Render cox plot
+    output$CoxPlot = renderPlot(geom_coxplot(editingData.Reactive()))
+
   }
 )
