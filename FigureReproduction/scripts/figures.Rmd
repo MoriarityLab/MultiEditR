@@ -1,0 +1,1563 @@
+---
+title: "MultiEditR Figures"
+subtitle: "Version 6.0.0"
+author: "Mitchell Kluesner"
+date: "10/05/2020"
+output:
+  html_document:
+    fig_height: 6
+    fig_width: 10
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+    toc_depth: 3
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+# Overview
+
+## Citation
+*Please do not use or distribute this document with explicit permission or proper citation of SMS Maama and relevant publications.*
+
+*Copyright (c) SMS Maama 2019.*
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+########## ########## ########## ########## ########## ########## ########## ########## 
+## This script is part of the MultiEditR                                               ## 
+## Copyright (c) Mitchell G Kluesner 2020                                              ##
+##                                                                                     ##
+## Please do not use, or distribute this script without proper citation or permission  ##
+########## ########## ########## ########## ########## ########## ########## ########## 
+```
+
+# Backend
+
+## Libraries
+```{r message=FALSE}
+library(tidyverse)
+library(magrittr)
+```
+
+## Global parameters
+```{r message=FALSE}
+ACGT = c("A", "C", "G", "T")
+TGCA = c("T", "G", "C", "A")
+GTAC = c("G", "T", "A", "C")
+```
+
+## Source scripts
+```{r message=FALSE}
+# source("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/analyze_ngs.R")
+```
+
+## Load data
+```{r message=FALSE}
+figure_1.df = read_tsv("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/figure_1.tsv")
+
+human_ngs = read_tsv("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/outTable_hg19_amps.txt") %>% mutate(Species = "human")
+
+mouse_ngs = read_tsv("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/outTable_mm10_amps.txt") %>% mutate(Species = "mouse")
+
+lambda.df = read_tsv("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/lambda.tsv")
+
+tcell.df = read_tsv("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/tcell.tsv")
+
+figure_s4d.df = read_tsv("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/figure_s4d.tsv")
+
+# Loads object as 'comparison'
+load("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/multieditr_data.rda")
+```
+
+## Manipulate data
+RNA-seq vs. Sanger-seq Comparison dataframe
+
+```{r message=FALSE}
+comparison.df = comparison %>%
+  lapply(., '[[', 6) %>%
+  plyr::ldply(., "data.frame") %>%
+  as_tibble() %>%
+  mutate(diff = sanger_perc - ngs_perc) %>%
+  mutate(base = factor(base, levels = c("C", "T", "G", "A"))) %>%
+  separate(sample_file, c("rm", "amplicon"), sep = "_", remove = F) %>%
+  dplyr::select(-rm)
+```
+
+
+Three-way comparison dataframe
+```{r message=FALSE}
+# Function for fisher test p-value
+fisherTest = function(a, b, c, d){
+  fisher.test(matrix(c(a, b, c, d), nrow = 2, ncol = 2, byrow = TRUE))$p.value
+}
+
+# Combine into single dataset
+amplicon_ngs = bind_rows(human_ngs, mouse_ngs) %>%
+  # Replace "[" and "]" with "" to separate easier
+  mutate(`BaseCount[A,C,G,T]` = gsub('[[]|[]]', "", `BaseCount[A,C,G,T]`)) %>%
+  # separate on the ", " to make individual columns for each base
+  separate(`BaseCount[A,C,G,T]`, into = c("A", "C", "G", "T"), sep = ", ", convert = TRUE) %>%
+  # Rename the Coverage column as Reads
+  dplyr::rename(Reads = `Coverage-q25`)
+
+# Make a revcom data frame to cover the "bases"
+amplicon_ngs_revcom = amplicon_ngs %>%
+  # ifelse statements to reverse compelement the value in the Reference column
+  mutate(Reference = {ifelse(Reference == "A", "T",
+                             ifelse(Reference == "C", "G",
+                                    ifelse(Reference == "G", "C", 
+                                           ifelse(Reference == "T", "A", NA))))}
+  ) %>%
+  dplyr::rename(`T` = A, G = C, C = G, A = `T`)
+
+# Combine sense and revcom data
+amplicon_ngs_combined = bind_rows(amplicon_ngs, amplicon_ngs_revcom) %>%
+  mutate(A_perc = A/Reads, C_perc = C/Reads, G_perc = G/Reads, T_perc = `T`/Reads) %>%
+  gather(base, amplicon_perc, A_perc:T_perc) %>%
+  mutate(base = gsub("_perc", "", base)) %>%
+  dplyr::rename(Amplicon_Reads = Reads) %>%
+  # Try leaving out the strand
+  dplyr::select(Region, Position, Reference, Amplicon_Reads, base, amplicon_perc, Species, Pvalue)
+# At this point we know all the possible base joining opeartions are available, so the bases are NOT being dropped here
+
+amplicon_merged_data = comparison.df %>%
+  # Have to only filter in WT1 samples, as these are the ones that were deep sequenced.
+  # Note that only 10 sites were deep sequenced
+  filter(grepl("WT1", sample_file)) %>%
+  inner_join(., amplicon_ngs_combined) %>%
+  # perform rowwise operations
+  rowwise %>%
+  # calculate the pvalue for test
+  mutate(fisher_pvalue = mapply(FUN = fisherTest, gRef, gAlt, Ref, Alt))
+
+amplicon_merged_perc_filter = 0.01
+filtered_amplicon_merged_data = amplicon_merged_data %>%
+  filter(amplicon_perc >= amplicon_merged_perc_filter & amplicon_perc <= 1-amplicon_merged_perc_filter)# %>%
+  # filter(sanger_perc >= amplicon_merged_perc_filter & sanger_perc <= 1-amplicon_merged_perc_filter)
+
+```
+
+```{r message=FALSE}
+zaga.df = comparison %>%
+  lapply(., '[[', 9) %>%
+  plyr::ldply(., "data.frame") %>%
+  as_tibble() %>%
+  dplyr::select(-.id)
+```
+
+```{r message=FALSE}
+classification.df = amplicon_merged_data %>%
+  # First we join the edit base to each reference base
+  inner_join(., tibble(Reference = ACGT, edit = GTAC)) %>%
+  # Next we filter on rows where the base of interest is the edit base
+  filter(base == edit) %>%
+  # Then we gather and filter to create a new column with the height of the potential edit
+  gather(tmp_edit_base, edit_height, A_area:T_area) %>%
+  mutate(tmp_edit_base = gsub("_area", "", tmp_edit_base)) %>%
+  # Filter only the rows where the height of the base of interest is included.
+  filter(tmp_edit_base == edit) %>%
+  dplyr::select(-tmp_edit_base) %>%
+  inner_join(., zaga.df) %>%
+  # This assigns the unadjusted p-values to each sample
+  mutate(sanger_pvalue = mapply(FUN = gamlss.dist::dZAGA, x = edit_height,
+                                mu = mu,
+                                sigma = sigma,
+                                nu = nu)
+  )
+```
+
+## Functions
+
+```{r message=FALSE}
+makePlotData = function(data, titration_index, wt, edit){
+  indices = data %>%
+    filter(titration == titrations[titration_index]) %>%
+    filter(expected == 50) %>%
+    filter(!! sym(paste0(wt, "_perc")) > 0.3) %>%
+    filter(!! sym(paste0(wt, "_perc")) < 0.7) %>%
+    .$ctrl_index
+  
+  plot_data = data %>%
+    filter(titration == titrations[titration_index]) %>%
+    filter(ctrl_index %in% indices) %>%
+    dplyr::rename(A = A_perc, C = C_perc, G = G_perc, `T` = T_perc) %>%
+    gather(base, perc, A:`T`) %>%
+    dplyr::select(expected, perc, base, ctrl_index)
+  
+  return(plot_data)
+}
+```
+
+```{r message=FALSE}
+plotTitration = function(data, titration_index, wt, edit){
+  
+  plot_data = makePlotData(data = data, titration_index = titration_index, wt = wt, edit = edit)
+  
+  rsq_wt = plot_data %>%
+    filter(base == wt) %>%
+    lm(perc ~ expected + 0, data = .) %>%
+    summary() %>%
+    .$adj.r.squared %>%
+    as.numeric() %>%
+    signif(., 3)
+
+  rsq_edit = plot_data %>%
+    filter(base == edit) %>%
+    lm((1-perc) ~ expected + 0, data = .) %>%
+    summary() %>%
+    .$adj.r.squared %>%
+    as.numeric() %>%
+    signif(., 3) %>%
+    as.character() %>%
+    # manually add a zero for formatting
+    paste0(., "0")
+  
+    plot = plot_data %>%
+      ggplot(aes(x = expected/100, y = perc, fill = base)) +
+      geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+      geom_abline(intercept = 1, slope = -1, linetype = "dashed") +
+      #geom_smooth(aes(color = base), method = "lm", alpha = 0.01) +
+      geom_point(shape = 21, size = 3, alpha = 0.7) +
+      ylab("Observed Base Percent (MultiEditR)") +
+      xlab("Expected Base Percent") +
+      labs(fill = "Base") +
+      scale_fill_manual(values = c("A" = "#4daf4a", "C" = "#377eb8", "G" = "#999999", "T" = "#e41a1c")) +
+      scale_y_continuous(labels = scales::percent_format(), breaks = signif(seq(0,1, 0.1),1)) +
+      scale_x_continuous(labels = scales::percent_format(), breaks = signif(seq(0,1, 0.1),1)) +
+      coord_cartesian(ylim = c(-0.01,1.01), xlim = c(-0.01,1.01), expand = F) +
+      annotate(geom = "text", label = paste0("R^2 == ", rsq_wt), parse = T, x = 0.9, y = 0.75, size = 7) +
+      annotate(geom = "text", label = paste0("R^2 == ", rsq_edit), parse = T, x = 0.1, y = 0.75, size = 7) +
+      theme_bw(base_size = 20) +
+      theme(aspect.ratio = 1,
+            panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  
+  # ggsave(output_file, plot, device = "tiff")
+  plot
+}
+```
+
+```{r message=FALSE}
+plotResults = function(dat, var1, var2){
+
+# dat = comparison.df
+# var1 = "sanger_perc"
+# var2 = "ngs_perc"
+
+  var1.quosure = rlang::enquo(var1)
+  var2.quosure = rlang::enquo(var2)
+  dat = dplyr::select(dat, !! var1.quosure, !! var2.quosure, everything()) %>%
+    dplyr::rename(variable1 = 1, variable2 = 2) %>%
+    mutate(diff = variable1 - variable2)
+  
+  rsquared = round(summary(lm(variable1 ~ variable2 + 0, data = dat))$adj.r.squared, 5)
+
+  plot1 = dat %>%
+    # ggplot(., aes(x = variable2, y = variable1, fill = base)) +
+    ggplot(., aes(x = variable2, y = variable1, fill = base, size = Reads)) +
+    # xlab("Percent Editing (NGS - REDItools)") +
+    # ylab("Percent Editing (MultiEditR)") +
+    scale_x_continuous(labels = scales::percent(seq(0,1, 0.2)), limits = c(0,1), breaks = seq(0,1, 0.2)) +
+    scale_y_continuous(labels = scales::percent(seq(0,1, 0.2)), limits = c(0,1), breaks = seq(0,1, 0.2)) +
+    scale_fill_manual(values = c("A" = "#4daf4a", "C" = "#377eb8", "G" = "#999999", "T" = "#e41a1c")) +
+    geom_abline(slope = 1, intercept = 0) +
+    geom_point(alpha = 0.7, pch = 21, color = "black") +
+    geom_smooth(method = "lm", color = "black", size = 1, fill = "black") +
+    labs(fill = "Base") +
+    annotate(geom = "text", label = paste0("R^2 == ", rsquared), parse = T, x = 0.2, y = 0.8, size = 8) +
+    theme_bw(base_size = 26) +
+    theme(aspect.ratio = 1,
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  
+  plot2 = dat %>%
+    ggplot(., aes(x = variable2, y = variable1, fill = base, size = Reads)) +
+    # ggplot(., aes(x = variable2, y = variable1, fill = base)) +
+    # xlab("Percent Editing (NGS - REDItools)") +
+    # ylab("Percent Editing (MultiEditR)") +
+    scale_x_continuous(labels = scales::percent(seq(0,1, 0.2)), limits = c(0,1), breaks = seq(0,1, 0.2)) +
+    scale_y_continuous(labels = scales::percent(seq(0,1, 0.2)), limits = c(0,1), breaks = seq(0,1, 0.2)) +
+    scale_color_manual(values = c("A" = "#4daf4a", "C" = "#377eb8", "G" = "#999999", "T" = "#e41a1c")) +
+    geom_abline(slope = 1, intercept = 0) +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm", color = "black", size = 1) +
+    labs(fill = "Base") +
+    theme_bw(base_size = 26) +
+    theme(aspect.ratio = 1,
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    facet_wrap(.~base)
+  
+   #plot3_labels = c( seq(-0.5,-0.2, 0.1), seq(-0.1, 0.1, 0.05), seq(0.2,0.5, 0.1))
+  
+    plot3_labels = seq(-0.5, 0.5, 0.1)
+  
+  plot3 = dat %>%
+    ggplot(., aes(x = base, y = diff, size = Reads)) +
+    # ggplot(., aes(x = base, y = diff)) +
+    # ylab("Innaccuracy\nObserved (MultiEditR) - Expected (NGS)") +
+    xlab("Base") +
+    geom_jitter(aes(fill = base),pch = 21, alpha = 0.7) +
+    geom_boxplot(color = "black", fill = "grey95", outlier.alpha = 0,  alpha = 0.7) +
+    scale_y_continuous(labels = scales::percent(  plot3_labels), limits = c(-0.5,0.5), breaks = plot3_labels) +
+    scale_fill_manual(values = c("A" = "#4daf4a", "C" = "#377eb8", "G" = "#999999", "T" = "#e41a1c")) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(fill = "Base") +
+    theme_bw(base_size = 26) +
+    theme(aspect.ratio = 1,
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+  
+  plot4 = dat %>%
+    ggplot(., aes(x = diff, fill = base)) +
+    geom_histogram(bins = 50) +
+    labs(fill = "Base") +
+    scale_fill_manual(values = c("A" = "#4daf4a", "C" = "#377eb8", "G" = "#999999", "T" = "#e41a1c")) +
+    theme_bw(base_size = 18) +
+    theme(aspect.ratio = 1,
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    facet_wrap(.~base)
+  
+  t.tests = data.frame(
+    "C" = c(unlist(t.test(filter(dat, base == "C")$diff)),sd(filter(dat, base == "C")$diff),median(filter(dat, base == "C")$diff)),
+    "T" = c(unlist(t.test(filter(dat, base == "T")$diff)),sd(filter(dat, base == "T")$diff),median(filter(dat, base == "T")$diff)),
+    "G" = c(unlist(t.test(filter(dat, base == "G")$diff)),sd(filter(dat, base == "G")$diff),median(filter(dat, base == "G")$diff)),
+    "A" = c(unlist(t.test(filter(dat, base == "A")$diff)),sd(filter(dat, base == "A")$diff),median(filter(dat, base == "A")$diff))
+  ) %>% t() %>%
+    as_tibble() %>%
+    #rowid_to_column("Base") %>%
+    dplyr::rename(Mean = 6, SD = 12, Median = 13,
+                  `t-value` = 1, df = 2, `P-value` = 3,
+                  `Lower 95% CI` = 4, `Upper 95% CI` = 5) %>%
+    dplyr::select(Mean, Median, SD, `t-value`, df, `P-value`, `Lower 95% CI`, `Upper 95% CI`) %>%
+    mutate_all(as.numeric) %>%
+    mutate_all(., ~ signif(., digits = 3)) %>%
+    # mutate_all(signif(., digits = 3)) %>%
+    #mutate_all(round(., digits = 3)) %>%
+    mutate(Base = c("C", "T", "G", "A")) %>%
+    mutate(Mean = scales::percent(Mean)) %>%
+    mutate(Median = scales::percent(Median)) %>%
+    mutate(SD = scales::percent(SD)) %>%
+    mutate(`Lower 95% CI` = scales::percent(`Lower 95% CI`),
+           `Upper 95% CI` = scales::percent(`Upper 95% CI`)) %>%
+    mutate(`P-value` = scales::scientific(`P-value`)) %>%
+    dplyr::select(Base, everything())
+  
+  return(list(plot1, plot2, plot3, plot4, t.tests, dat))
+}
+```
+
+```{r message=FALSE}
+analyzeFigure2f = function(perc_cutoff, data){
+figure_2f_data = data %>%
+  filter(amplicon_perc >= perc_cutoff & amplicon_perc <= 1-perc_cutoff) %>%
+  dplyr::select(sanger_perc, ngs_perc, amplicon_perc, base) %>%
+  mutate(MultiEditR = sanger_perc - amplicon_perc, `RNA-seq` = ngs_perc - amplicon_perc) %>%
+  gather("Metric", "value", MultiEditR:`RNA-seq`) %>%
+  mutate(Threshold = paste0("≥ ", scales::percent(perc_cutoff), " inclusion")) %>%
+  mutate(Threshold = factor(Threshold, levels = c("≥ 1% inclusion", "≥ 5% inclusion", "≥ 10% inclusion")))
+  }
+```
+
+```{r message=FALSE}
+analyzeROC = function(data, classifier_var, label_var, label_threshold){
+  
+  ## Begin of function
+  classifier_var.quosure = rlang::enquo(classifier_var)
+  label_var.quosure = rlang::enquo(label_var)
+  
+  tmp0 = data %>%
+    dplyr::select(!! label_var.quosure, !! classifier_var.quosure, everything()) %>%
+    dplyr::rename(label_var = 1, classifier_var = 2)
+  
+  tmp1 = tmp0 %>%
+    mutate(label = {ifelse(label_var >= label_threshold, TRUE, FALSE)} %>% as.numeric) %>%
+    mutate(prediction = 1-(classifier_var)) %>%
+    dplyr::select(prediction, label) %>%
+    cutpointr::cutpointr(., x  = prediction, class = label)
+  
+  tmp2 = tmp1 %>%
+    mutate(J = sum_sens_spec - 1) %>%
+    mutate(threshold = label_threshold) %>%
+    mutate(fpr = 1-sensitivity) %>%
+    mutate(AUC = signif(AUC,2)) %>%
+    mutate(classifier_var = classifier_var)
+  
+  tmp3 = tmp2$roc_curve[[1]] %>%
+    mutate(threshold = label_threshold,
+           classifier_var = classifier_var)
+  
+  tmp4  = tmp2 %>%
+    summary %>%
+    .$confusion_matrix %>%
+    .[[1]] %>%
+    tibble %>%
+    mutate((threshold = label_threshold)) %>%
+    mutate(classifier_var = classifier_var)
+  
+  return(list(tmp2, tmp3, tmp4))
+}
+```
+
+```{r message=FALSE}
+plotROC = function(classificationAnalysis, thresholds_of_interest, decimal_point = 0.1){
+  ROCCurves = classificationAnalysis %>%
+    lapply(., "[[", 2) %>%
+    plyr::ldply(., "data.frame") %>%
+    as_tibble() %>%
+    mutate(threshold = scales::percent(threshold, decimal_point)) %>%
+    mutate(threshold = factor(threshold, levels = scales::percent(rev(thresholds_of_interest),  decimal_point)))
+  
+  classificationStatistics = classificationAnalysis %>%
+    lapply(., "[[", 1) %>%
+    plyr::ldply(., "data.frame") %>%
+    as_tibble() %>%
+    mutate(fpr = 1-sensitivity, fnr = 1-specificity) %>%
+    mutate(threshold = scales::percent(threshold, decimal_point)) %>%
+    mutate(threshold = factor(threshold, levels = scales::percent(rev(thresholds_of_interest),  decimal_point)))
+  
+  confusionStatistics = classificationAnalysis %>%
+    lapply(., "[[", 3) %>%
+    plyr::ldply(., "data.frame") %>%
+    as_tibble() %>%
+    dplyr::rename(optimal_cutpoint = cutpoint) %>%
+    mutate(threshold = thresholds_of_interest) %>%
+    mutate(threshold = scales::percent(threshold, decimal_point)) %>%
+    mutate(threshold = factor(threshold, levels = scales::percent(rev(thresholds_of_interest),  decimal_point)))
+  
+  outStatistics = classificationStatistics %>%
+    inner_join(., confusionStatistics) %>%
+    mutate(MCC = ((tp * tn) - (fp * fn))  / sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))) %>%
+    mutate(N = tp + tn + fp + fn)
+  
+  ROC_plot = ROCCurves %>%
+    ggplot(aes(x  = fpr, y = tpr, color = threshold))  +
+    geom_line(size = 1.1, alpha = 0.7)  +
+    geom_abline(slope  = 1, intercept = 0, linetype  = "dashed") +
+    geom_point(data = classificationStatistics, aes(x = fnr, y =sensitivity), size = 4, pch =  4)  +
+    geom_point(data = classificationStatistics, aes(x = fnr, y =sensitivity), size = 2)  +
+    labs(color  = "Limit of Detection")  +
+    annotate(geom = "text", x = 0.5, y =  0.43, label = "Line of random guessing", size = 6, angle = 45) +
+    annotate(geom = "point", x = 0, y =  1, size = 4, pch = 4) +
+    annotate(geom = "point", x = 0, y =  1, size = 2) +
+    theme_bw(base_size = 18) +
+    ylab("True Positive Rate (Sensitivity)") +
+    xlab("False Positive Rate (1-Specificity)") +
+    theme(panel.grid = element_blank(), aspect.ratio = 1)
+  
+  ROC_summary = outStatistics %>%
+    mutate(optimal_alpha = 1-optimal_cutpoint) %>%
+    dplyr::select(threshold, optimal_alpha, sensitivity, specificity, AUC, J, MCC, N, tp, fp, tn, fn, fnr, classifier_var) %>%
+    dplyr::rename("Limit of Detection" =  1, "Optimal α" =  2, "Sensitivity" = 3, "Specificity" = 4, "AUC" = 5, "Youden's J" =  6, "MCC"  = 7) %>%
+    mutate(n_edits = fn + tp)
+  
+  return(list(ROC_plot, ROCCurves, ROC_summary))
+}
+```
+
+```{r message=FALSE}
+which.frequent = function(x){names(which.max(table(x)))}
+```
+
+```{r message=FALSE}
+plotFigure4 = function(x, y, figure_4_data, xlim = 0.8, ylim = 0.8){
+  
+  x.quosure = rlang::enquo(x)
+  y.quosure = rlang::enquo(y)
+  
+  figure_4_data %<>%
+    dplyr::select(!! x.quosure, !! y.quosure, everything()) %<>%
+    dplyr::rename(x = 1, y = 2)
+  
+  rsq = figure_4_data %>%
+    lm(y ~ x + 0, data = .) %>%
+    summary() %>%
+    .$adj.r.squared %>%
+    as.numeric() %>%
+    signif(., 3)
+  
+  figure_4_data %>%
+    ggplot(aes(x = x, y = y, color = Gene))  +
+    geom_abline(slope = 1, intercept = 0) +
+    geom_smooth(method = "lm", color = "black", fill = "grey") +
+    geom_point(aes(pch = Enzyme), alpha = 0.8, size = 4) +
+    scale_y_continuous(limits = c(0,ylim), labels = scales::percent_format()) +
+    scale_x_continuous(limits = c(0,xlim), labels = scales::percent_format()) +
+    ylab("Sanger sequencing (MultiEditR)") +
+    xlab("NGS (CRISPR-DAV)") +
+    annotate(geom = "text", label = paste0("R^2 == ", rsq), parse = T, x = 0.1, y = 0.74, size = 8) +
+    theme_bw(base_size = 24) +
+    theme(aspect.ratio = 1,
+          panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+}
+```
+
+# Main Figures
+
+## Figure 1
+
+### Figure 1a
+Diagram of plasmid titration experiment
+
+### Figure 1b
+Chromatograms from incremental titration C>T
+
+### Figure 1c
+Scatter plot from titration experiment
+```{r, fig.width=10,fig.height=10, message=FALSE}
+titrations = unique(figure_1.df$titration)
+
+figure_1c = plotTitration(figure_1.df , titration_index = 2, "T", "C")
+
+figure_1c
+```
+
+### Figure 1d
+MultiEditR algorithm
+
+### Figure 1e
+MultiEditR vs. REDItools scatterplot
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_1e_perc_cutoff = 0.01
+
+figure_1e = comparison.df %>%
+  filter(ngs_perc >= figure_1e_perc_cutoff & ngs_perc <= 1-figure_1e_perc_cutoff) %>%
+  filter(sanger_perc >= figure_1e_perc_cutoff & sanger_perc <= 1-figure_1e_perc_cutoff) %>%
+  plotResults(., var1 = "sanger_perc", var2 = "ngs_perc") %>%
+  .[[1]] +
+  xlab("RNA-seq (REDitools)") +
+  ylab("Sanger sequencing (MultiEditR)")
+
+figure_1e
+```
+
+### Figure 1f
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_1f_cor_data = comparison.df %$%
+  cor.test(x = abs(diff), y = Reads, method = "spearman") %>%
+  unlist() %>%
+  .[c(2, 3)] %>%
+  as.numeric() %>%
+  signif(3)
+
+figure_1f_correlation_label = paste0("ρ = ", figure_1f_cor_data[2], ", P = ", figure_1f_cor_data[1])
+
+figure_1f = comparison.df %>%
+  ggplot(aes(x = Reads, y =  abs(diff))) +
+  scale_fill_manual(values = c("A" = "#4daf4a", "C" = "#377eb8", "G" = "#999999", "T" = "#e41a1c")) +
+  geom_point(alpha = 0.3) +
+  scale_x_log10(limits = c(1, 1e4), breaks = c(1, 10, 100, 1000, 10000)) +
+  scale_y_log10(limits = c(1e-5, 1e0), breaks = c(1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0), labels = rev(c("100.0%", "10.0%", "1.0%", "0.1%", "0.01%", "0.001%"))) +
+  # scale_y_continuous(breaks = seq(0, 1, 0.1)) +
+  # scale_y_log10() +
+  # geom_density_2d(aes(color = "black")) +
+  geom_smooth(fill = "black", method = "lm", size = 1.5) +
+  # scale_y_continuous(labels = scales::percent(seq(-0.5,0.5, 0.1)), limits = c(-0.5,0.5), breaks = seq(-0.5,0.5, 0.1)) +
+  # facet_wrap(.~Reference) +
+  ylab("Error = |MultiEditR - RNA-seq|") +
+  xlab("RNA-seq Read Depth") +
+  annotate(geom = "label", label = figure_1f_correlation_label, x = 2000, y = 2e-3, alpha = 0.7, size = 6) +
+  theme_bw(base_size = 26) +
+  theme(aspect.ratio = 1,
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+figure_1f
+```
+
+### Figure 1g
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_1g = ggplot() +
+  geom_histogram(data = comparison.df %>% filter(abs(diff) <= 0.001), aes(x = Reads, y = -(..count..)/828), fill="grey30", color = "black") +
+  geom_histogram(data = comparison.df %>% filter(abs(diff) >= 0.9), aes(x = Reads, y = (..count..)/336), fill="grey", color = "black") +
+  scale_x_log10(limits = c(1, 1e4), breaks = c(1, 10, 100, 1000, 10000)) +
+  scale_y_continuous(limits = c(-0.2, 0.2), breaks = seq(-0.2, 0.2, 0.1), labels = c(0.2, 0.1, 0, 0.1, 0.2)) +
+  geom_label( aes(x=3.5, y=0.19, label="Error ≥ 90%"), size = 6) +
+  geom_label( aes(x=5, y=-0.19, label="Error ≤ 0.1%"), size = 6) +
+  theme_bw(26) +
+  ylab("Relative Density") +
+  xlab("RNA-seq Read Depth")  +
+  theme(aspect.ratio = 1, panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+figure_1g
+```
+
+## Figure 2
+
+### Figure 2a
+Diagram of three-way comparison workflow
+
+### Figure 2b
+MultiEditR vs. Amplicon-seq scatter plot
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_2b = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "sanger_perc", var2 = "ngs_perc") %>%
+  .[[1]] +
+  ylab("Sanger sequencing (MultiEditR)") +
+  xlab("RNA-seq (REDitools)")
+
+figure_2b
+```
+
+### Figure 2c
+MultiEditR vs. Amplicon-seq boxplot
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_2c = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "sanger_perc", var2 = "amplicon_perc") %>%
+  .[[3]] +
+  theme(legend.position = "none") +
+  ylab("Inaccuracy (MultiEditR - Amplicon-seq)")
+
+figure_2c
+```
+
+### Figure 2d
+REDItools vs. Amplicon-seq scatter plot
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_2d = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "ngs_perc", var2 = "amplicon_perc") %>%
+  .[[1]] +
+  ylab("RNA-seq (REDitools)") +
+  xlab("Amplicon-seq (REDitools)")
+
+figure_2d
+```
+
+### Figure 2e
+REDItools vs. Amplicon-seq boxplot
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_2e = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "ngs_perc", var2 = "amplicon_perc") %>%
+  .[[3]]  +
+  theme(legend.position = "none") +
+  ylab("Inaccuracy (RNA-seq - Amplicon-seq)")
+
+figure_2e
+```
+
+### Figure 2f
+Accuracy at inclusion criteria
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_2f = lapply(FUN = analyzeFigure2f, X = c(0.01, 0.05, 0.1), amplicon_merged_data) %>%
+  plyr::ldply(., "data.frame") %>%
+  ggplot(aes(x = value, fill = Metric)) +
+  geom_density(adjust = 2, alpha = 0.5) +
+  scale_x_continuous(limits = c(-0.5, 0.5), breaks = seq(-0.4, 0.4, 0.1), labels = c("-40%", "", "-20%", "", "0%", "", "20%", "", "40%")) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_bw(base_size = 18) +
+  ylab("Density") +
+  xlab("Inaccuracy (Metric - Amplicon-seq)") +
+  facet_grid(.~Threshold, scale = "free_y") +
+  theme_bw(base_size = 16) +
+  theme(aspect.ratio = 1,
+        panel.grid = element_blank())
+
+figure_2f
+```
+
+```{r}
+lapply(FUN = analyzeFigure2f, X = c(0.01, 0.05, 0.1), amplicon_merged_data) %>%
+  plyr::ldply(., "data.frame") %>%
+  group_by(Metric) %>%
+  dplyr::summarise(Min = min(value), Max = max(value)) %>%
+  ungroup() %>%
+  mutate_if(is.numeric, scales::percent)
+```
+
+
+### Figure 2g
+Confusion matrix
+
+### Figure 2h
+ROC analysis at 1%, 5%, and 10%
+
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_2h_thresholds = c(0.01, 0.05, 0.1)
+
+figure_2h_sanger_data = classification.df %>% 
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "sanger_pvalue",
+         label_var = "amplicon_perc", X = figure_2h_thresholds) %>%
+  plotROC(., figure_2h_thresholds)
+
+figure_2h_rnaseq_data = classification.df %>% 
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "fisher_pvalue",
+         label_var = "amplicon_perc", X = figure_2h_thresholds) %>%
+  plotROC(., figure_2h_thresholds)
+
+figure_2h_ROC_data = bind_rows(figure_2h_sanger_data[[2]], figure_2h_rnaseq_data[[2]]) %>%
+  mutate(threshold = paste0(threshold, " editing threshold")) %>%
+  mutate(classifier_var = factor(classifier_var, levels = c("sanger_pvalue", "fisher_pvalue"))) %>%
+  mutate(threshold = factor(threshold, levels = c("1.0% editing threshold", "5.0% editing threshold", "10.0% editing threshold")))
+
+figure_2h_classification.df = bind_rows(figure_2h_sanger_data[[3]], figure_2h_rnaseq_data[[3]]) %>%
+  dplyr::rename(threshold = 1) %>%
+  mutate(threshold = paste0(threshold, " editing threshold")) %>%
+  mutate(classifier_var = factor(classifier_var, levels = c("sanger_pvalue", "fisher_pvalue"))) %>%
+  mutate(threshold = factor(threshold, levels = c("1.0% editing threshold", "5.0% editing threshold", "10.0% editing threshold")))
+```
+
+```{r, fig.width=30,fig.height=10, message=FALSE}
+figure_2h = figure_2h_ROC_data %>%
+  ggplot(aes(x  = fpr, y = tpr, color = threshold))  +
+  geom_line(aes(linetype = classifier_var), size = 1.1, alpha = 0.7)  +
+  geom_abline(slope  = 1, intercept = 0, linetype  = "dashed") +
+  geom_point(data = figure_2h_classification.df, aes(x = fnr, y =Sensitivity), size = 4, pch =  4)  +
+  geom_point(data = figure_2h_classification.df, aes(x = fnr, y =Sensitivity), size = 2)  +
+  labs(color  = "Limit of Detection", linetype = "Method")  +
+  scale_color_manual(values = c("#1b9e77", "#d95f02", "#7570b3")) +
+  scale_linetype_manual(values = c("fisher_pvalue" = 3, "sanger_pvalue" = 1), labels = c("MultiEditR", "REDitools")) +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0,1, 0.2), labels = scales::percent_format()) +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(0,1, 0.2), labels = scales::percent_format()) +
+  annotate(geom = "text", x = 0.5, y =  0.43, label = "Line of random guessing", size = 10, angle = 45) +
+  annotate(geom = "point", x = 0, y =  1, size = 4, pch = 4) +
+  annotate(geom = "point", x = 0, y =  1, size = 2) +
+  theme_bw(base_size = 36) +
+  ylab("True Positive Rate (Sensitivity)") +
+  xlab("False Positive Rate (1-Specificity)") +
+  facet_grid(.~threshold) + 
+  theme(panel.grid = element_blank(), aspect.ratio = 1, strip.background = element_blank(), strip.text = element_text(size = 36))
+
+figure_2h
+```
+
+### Figure 2i
+Sensitivity, Specificity and AUC
+
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_2i_thresholds = c(0.001, 0.005,  0.01, 0.05, 0.10, 0.25)
+
+figure_2i_sanger_data = classification.df %>% 
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "sanger_pvalue",
+         label_var = "amplicon_perc", X = figure_2i_thresholds) %>%
+  plotROC(., figure_2i_thresholds)
+
+figure_2i_rnaseq_data = classification.df %>% 
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "fisher_pvalue",
+         label_var = "amplicon_perc", X = figure_2i_thresholds) %>%
+  plotROC(., figure_2i_thresholds)
+
+figure_2i_classification.df = bind_rows(figure_2i_sanger_data[[3]], figure_2i_rnaseq_data[[3]]) %>%
+  dplyr::rename(threshold = 1) %>%
+  mutate(threshold = as.numeric(gsub("%", "", as.character(threshold)))/100) %>%
+  mutate(classifier_var = factor(classifier_var, levels = rev(c("sanger_pvalue", "fisher_pvalue"))))
+```
+
+```{r, fig.width=30,fig.height=10, message=FALSE}
+figure_2i = figure_2i_classification.df %>%
+  dplyr::rename(`Matthew's Correlation\nCoefficient (MCC)` = MCC, `Area Under Curve (AUC)` = AUC) %>%
+  gather(., key = "metric", value = "value", c(Sensitivity:`Matthew's Correlation\nCoefficient (MCC)`)) %>%
+  mutate(metric = factor(metric, levels = c("Sensitivity", "Specificity", "Area Under Curve (AUC)", "Youden's J", "Matthew's Correlation\nCoefficient (MCC)"))) %>%
+  filter(metric %in% c("Sensitivity", "Specificity", "Area Under Curve (AUC)")) %>%
+  ggplot(aes(x = threshold, y = value, fill = classifier_var, color = classifier_var)) +
+  annotate(geom = "rect", xmin = 0.04, xmax = 0.3, ymin = 0, ymax = 1.05, color = "black", alpha = 0) +
+  geom_line(stat = "identity", size = 1) +
+  geom_point(pch = 21, size = 3, color = "black") +
+  annotate(geom = "text", label = "Best use of\nMultiEditR", x = 0.110, y = 0.1, size = 8) +
+  scale_x_log10(labels = scales::percent_format(accuracy = 0.1), breaks = figure_2i_thresholds) +
+  scale_y_continuous(limits = c(0,1.05), breaks = seq(0,1, 0.2)) +
+  scale_color_manual(values = c("fisher_pvalue" = "#1b9e77", "sanger_pvalue" = "#7570b3"), labels = c("REDitools", "MultiEditR")) +
+  scale_fill_manual(values = c("fisher_pvalue" = "#1b9e77", "sanger_pvalue" = "#7570b3"), labels = c("REDitools", "MultiEditR")) +
+  ylab("Value of metric") +
+  xlab("Editing detection threshold") +
+  # geom_bar(stat = "identity", position = "dodge") +
+  labs(color = "Method", fill = "Method") +
+  theme_bw(base_size = 36) +
+  facet_grid(.~metric) +
+  theme(panel.grid = element_blank(),
+        strip.background = element_blank(),
+        axis.text.x = element_text(hjust = 1, angle = 45),
+        aspect.ratio = 1,
+        strip.text = element_text(size = 36))
+
+figure_2i
+```
+
+## Figure 3
+
+### Figure 3a
+Definition of MEEI
+
+### Figure 3b
+RNA-seq AEI vs. MEEI
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_3b_data = comparison.df %>%
+  dplyr::group_by(sample_file) %>%
+  dplyr::mutate(ave_reads = mean(Reads), ReferenceBase = which.frequent(Reference)) %>%
+  ungroup() %>%
+  filter(Reference == base, Reference == ReferenceBase) %>%
+  dplyr::select(sample_file, EI_ngs, EI_sanger, Reference, Region, ave_reads) %>%
+  dplyr::distinct()
+
+figure_3b_cor_data = figure_3b_data %$%
+  cor.test(x = EI_ngs, y = EI_sanger) %>%
+  unlist() %>%
+  .[c(3, 4)] %>%
+  as.numeric() %>%
+  signif(3)
+
+figure_3b_correlation_label = paste0("r = ", figure_3b_cor_data[2], ", P = ", figure_3b_cor_data[1])
+```
+
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_3b = figure_3b_data  %>%
+  ggplot(aes(y = EI_sanger, x = EI_ngs, fill = ave_reads)) +
+  geom_point(pch = 21, color = "black", alpha = 0.8, size = 4) +
+  geom_smooth(method = "lm", color = "black") +
+  theme_bw(base_size = 18) +
+  theme(aspect.ratio = 1,
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(fill = "Average Read Depth") +
+  ylab("MultiEditR Editing Index (MEI)") +
+  xlab("RNA-seq Editing Index (EI)\nRoth et al., 2019") +
+  annotate(geom = "label", label = figure_3b_correlation_label, x = 0.04, y = 0.04, size = 6)
+
+figure_3b
+```
+
+
+### Figure 3c
+Amplicon-seq AEI vs. MEEI
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_3c_data = amplicon_merged_data %>%
+  dplyr::group_by(sample_file) %>%
+  dplyr::mutate(ave_reads = mean(Reads), ReferenceBase = which.frequent(Reference)) %>%
+  ungroup() %>%
+  filter(Reference == base, Reference == ReferenceBase) %>%
+  dplyr::select(sample_file, EI_ngs, EI_sanger, Reference, Region, ave_reads) %>%
+  dplyr::distinct()
+
+figure_3c_cor_data = figure_3c_data %$%
+  cor.test(x = EI_ngs, y = EI_sanger) %>%
+  unlist() %>%
+  .[c(3, 4)] %>%
+  as.numeric() %>%
+  signif(3)
+
+figure_3c_correlation_label = paste0("r = ", figure_3c_cor_data[2], ", P = ", figure_3c_cor_data[1])
+```
+
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_3c = figure_3c_data %>%
+  ggplot(aes(y = EI_sanger, x = EI_ngs, fill = ave_reads)) +
+  geom_point(pch = 21, color = "black", alpha = 0.8, size = 4) +
+  geom_smooth(method = "lm", color = "black") +
+  theme_bw(base_size = 18) +
+  theme(aspect.ratio = 1,
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  # scale_fill_gradient(low = "#132B43", high = "#41ae76") +
+  labs(fill = "Average Read Depth") +
+  ylab("MultiEditR Editing Index (MEI)") +
+  xlab("Amplicon-seq Editing Index (EI)\nRoth et al., 2019") +
+  annotate(geom = "label", label = figure_3c_correlation_label, x = 0.04, y = 0.04, size = 6)
+
+figure_3c
+```
+
+
+### Figure 3d
+Diagram of 4LN system
+
+### Figure 3e
+Diagram of experiment
+
+### Figure 3f
+Flow and MultiEditR data
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_3f = lambda.df %>%
+  gather(Metric, Percent, target_edit:gfp) %>%
+  ggplot(aes(x  = enzyme, y = Percent, fill = Metric)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  scale_fill_manual(values = rev(c("#4A9BD9", "#41ae76")), labels = c("Flow Cytometry", "MultiEditR")) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  ylab("Percent Conversion") +
+  xlab("") +
+  labs(fill = "Metric") +
+  theme_bw(base_size  = 24) +
+  theme(aspect.ratio =  3.5, 
+        axis.text.x = element_text(angle  = 45, hjust = 1),
+        panel.grid = element_blank()) +
+  facet_grid(.~guide, space = "free_x", scale = "free_x")
+
+figure_3f
+```
+
+
+### Figure 3g
+Target Edit to background editing ratio
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_3g = lambda.df %>%
+  ggplot(aes(x  = enzyme, y = norm_target_MEI_ratio)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", fill = c("#1b9e77", "#d95f02", "#7570b3")[3]) +
+  scale_y_continuous(limits = c(0,30), breaks = c(0,5,10,15,20,25,30)) +
+  ylab("Target Editing to MEI ratio\n(normalized to CAGX alone) ") +
+  xlab("") +
+  theme_bw(base_size  = 30) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  theme(aspect.ratio =  3.5, 
+        axis.text.x = element_text(angle  = 45, hjust = 1),
+        panel.grid = element_blank()) +
+  facet_grid(.~guide, space = "free_x", scale = "free_x")
+
+
+figure_3g
+```
+
+
+### Figure 3h
+Diagram of T-cell experiments
+
+### Figure 3i
+NGS data
+```{r, fig.width=10,fig.height=10, message=FALSE}
+tcell.df = tcell.df %>%
+  mutate(NGS = NGS/100, Sanger = Sanger/100, Flow = Flow/100) %>%
+  group_by(gRNA, Gene, Enzyme)  %>%
+  dplyr::summarize(NGS = mean(NGS), Sanger = mean(Sanger), Flow = mean(Flow))
+```
+
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_3i = plotFigure4("Sanger", "NGS", tcell.df, 0.8, 0.8) +
+  xlab("Sanger sequencing (MultiEditR)") +
+  ylab("NGS (CRISPR-DAV)")
+
+figure_3i
+```
+
+### Figure 3k
+Protein KO data
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_3k = plotFigure4("Sanger", "Flow", tcell.df, 0.8, 0.8) +
+  ylab("Protein Knock-out") +
+  xlab("Sanger sequencing (MultiEditR)")
+
+figure_3k
+```
+
+# Supplementary Figures
+
+## Supplementary Figure S1
+
+### Supplementary Figure S1a
+Western blot for ADAR
+
+### Supplementary Figure S1b
+Chromatograms for B2M
+
+## Supplementary Figure S2
+
+### Supplementary Figure S2a
+Plasmid alignments of edited and unedited experiments
+
+### Supplementary Figure S2b
+G>A titration chromatograms
+
+### Supplementary Figure S2c
+G>A titration
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s2c = plotTitration(figure_1.df , titration_index = 1, "A", "G")
+
+figure_s2c
+```
+
+### Supplementary Figure S2d
+```{r, fig.width=10,fig.height=10, message=FALSE}
+# Boxplot of results of initial titrations
+
+# Make a combined dataframe
+figure_s2_combined_data = bind_rows(makePlotData(figure_1.df, titration_index = 2, "T", "C") %>%
+                            filter(base == "T" | base == "C") %>%
+                            mutate(expected = expected/100) %>%
+                            mutate(expected = {ifelse(base == "C", 1-expected, expected)}),
+                          makePlotData(figure_1.df, titration_index = 1, "A", "G") %>%
+                            filter(base == "A" | base == "G") %>%
+                            mutate(expected = expected/100) %>%
+                            mutate(expected = {ifelse(base == "G", 1-expected, expected)})
+) %>%
+  mutate(diff = perc - expected) %>%
+  mutate(base = factor(base, levels = c("C", "T", "G", "A")))
+
+figure_s2d = figure_s2_combined_data %>%
+  ggplot(., aes(x = base, y = diff)) +
+  ylab("Inaccuracy\nObserved (MultiEditR) - Expected (Titration)") +
+  xlab("Base") +
+  geom_jitter(aes(fill = base),pch = 21, alpha = 0.7) +
+  geom_boxplot(color = "black", fill = "grey95", outlier.alpha = 0,  alpha = 0.7) +
+  scale_y_continuous(labels = scales::percent(seq(-0.5,0.5, 0.1)), limits = c(-0.5,0.5), breaks = seq(-0.5,0.5, 0.1)) +
+  scale_fill_manual(values = c("A" = "#4daf4a", "C" = "#377eb8", "G" = "#999999", "T" = "#e41a1c")) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(fill = "Base") +
+  theme_bw(base_size = 24) +
+  theme(aspect.ratio = 1,
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+figure_s2d
+```
+
+### Supplementary Figure S2e
+
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s2e = data.frame(t.test(filter(figure_s2_combined_data , base == "C")$diff) %>%
+  unlist() %>%
+  c(., sd(filter(figure_s2_combined_data , base == "C")$diff)),
+
+t.test(filter(figure_s2_combined_data , base == "T")$diff) %>%
+  unlist() %>%
+  c(., sd(filter(figure_s2_combined_data , base == "T")$diff)),
+
+t.test(filter(figure_s2_combined_data , base == "G")$diff) %>%
+  unlist() %>%
+  c(., sd(filter(figure_s2_combined_data , base == "G")$diff)),
+
+t.test(filter(figure_s2_combined_data , base == "A")$diff) %>%
+  unlist() %>%
+  c(., sd(filter(figure_s2_combined_data , base == "A")$diff))
+) %>%
+  t() %>%
+  as_tibble() %>%
+  mutate_all(~as.numeric(.)) %>%
+  mutate_all(~signif(., 3)) %>%
+  mutate(Base = c("C", "T", "G", "A")) %>%
+  dplyr::select(Base, "estimate.mean of x", V12, statistic.t, parameter.df, p.value, conf.int1, conf.int2) %>%
+  dplyr::rename(Base = 1, Mean = 2, SD = 3, `t-value` =  4, df  = 5, `P-value` = 6) %>%
+  mutate(conf.int1 = conf.int1 + Mean, conf.int2 = conf.int2 + Mean) %>%
+  mutate(Mean = scales::percent(Mean),
+         SD = scales::percent(SD),
+         conf.int1 = scales::percent(conf.int1),
+         conf.int2 = scales::percent(conf.int2),
+         `P-value` = scales::scientific(`P-value`)) %>%
+  dplyr::rename("Lower 95% CI" = 7, "Upper 95% CI" = 8)
+
+figure_s2e %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+## Supplementary Figure S3
+MultiEditR algorithm flow chart
+
+## Supplementary Figure S4
+
+### Supplementary Figure S4a
+Boxplot of Sanger vs. complete RNA-seq data
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s4_perc_cutoff = 0.01
+
+figure_s4a = comparison.df %>%
+  filter(ngs_perc >= figure_s4_perc_cutoff& ngs_perc <= 1-figure_s4_perc_cutoff) %>%
+  filter(sanger_perc >= figure_s4_perc_cutoff& sanger_perc <= 1-figure_s4_perc_cutoff) %>%
+  plotResults(., var1 = "sanger_perc", var2 = "ngs_perc") %>%
+  .[[3]] +
+  scale_y_continuous(limits = c(-1, 1), breaks = seq(-1,1,0.2), labels = scales::percent_format()) +
+  ylab("Inaccuracy (MultiEditR - RNA-seq)")
+
+figure_s4a
+```
+
+### Supplementary Figure S4b
+Table of Sanger vs. complete RNA-seq data
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s4b = comparison.df %>%
+  filter(ngs_perc >= figure_s4_perc_cutoff& ngs_perc <= 1-figure_s4_perc_cutoff) %>%
+  filter(sanger_perc >= figure_s4_perc_cutoff& sanger_perc <= 1-figure_s4_perc_cutoff) %>%
+  plotResults(., var1 = "sanger_perc", var2 = "ngs_perc") %>%
+  .[[5]]
+
+figure_s4b %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+### Supplementary Figure S4c
+Descriptive statistics of the comparison
+```{r, fig.width=10,fig.height=10}
+# n_species = 2
+# n_sites = 15
+comparison.df %>% .$amplicon %>% unique() %>% length()
+
+# n_replicates = 2 or 3
+
+# n_unique_bases = 1746
+comparison.df %>% 
+  dplyr::select(Region, Position) %>%
+  distinct() %>%
+  nrow()
+
+# mean_reads = 595
+comparison.df %>% 
+  .$Reads %>%
+  mean()
+
+# median_reads = 144
+comparison.df %>% 
+  .$Reads %>%
+  median()
+
+figure_s4c = tibble(Metric = c("Species", "Transcript regions", "Replicates", "Unique bases", "Mean coverage", "Median coverage"),
+                    Value = c(2, 15, "2 or 3", 1746, "595 reads", "144 reads"))
+
+figure_s4c %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+### Supplementary Figure S4d
+Load data instead of simulating
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s4d_cor_data = figure_s4d.df %$%
+  cor.test(x = abs(error), y = reads, method = "spearman") %>%
+  unlist() %>%
+  .[c(2, 3)] %>%
+  as.numeric() %>%
+  signif(3)
+
+figure_s4d_correlation_label = paste0("ρ = ", figure_s4d_cor_data [2], ", P < ", "2.2e-16")
+
+
+figure_s4d = figure_s4d.df %>%
+  ggplot(aes(x = reads, y = abs(error))) +
+  # scale_fill_manual(values = c("A" = "#4daf4a", "C" = "#377eb8", "G" = "#999999", "T" = "#e41a1c")) +
+  geom_point(alpha = 0.3) +
+  scale_x_log10(limits = c(1, 1e4), breaks = c(1, 10, 100, 1000, 10000)) +
+  # scale_y_log10(limits = c(1e-7, 1e0), scales::math_format(10^.x), breaks = c(10^(-7:0))) +
+  scale_y_log10(limits = c(1e-7, 1e0)) +
+  # geom_density_2d(aes(color = "black")) +
+  geom_smooth(fill = "black", method = "lm") +
+  ylab("Simulated absolute error in RNA-seq\nfrom hypothetical true value")  +
+  xlab("Read Depth") +
+  annotate(geom = "label", label = figure_s4d_correlation_label, x = 2000, y = 1e-1, size = 6) +
+  # scale_y_continuous(labels = scales::percent(seq(-0.5,0.5, 0.1)), limits = c(-0.5,0.5), breaks = seq(-0.5,0.5, 0.1)) +
+  # facet_wrap(.~Reference) +
+  theme_classic(base_size = 24)
+
+figure_s4d
+```
+
+### Supplementary Figure S4e
+Reads by each sample in the RNA-seq comparison
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s4e = comparison.df %>%
+  ggplot(aes(y = Reads, x = reorder(amplicon, -Reads), fill = amplicon)) +
+  geom_point(position = position_jitter(0.1), alpha = 0.3) +
+  geom_violin(alpha = 0.8, fill = "#2c7bb6") +
+  scale_y_log10() +
+  xlab("Transcript")  +
+  ylab("RNA-seq Reads") +
+  theme_classic(base_size = 24) +
+  theme(axis.text.x = element_text(hjust = 1, angle = 45),
+        legend.position = "none", aspect.ratio = 1.2)
+
+figure_s4e 
+```
+### Supplementary Figure S4f
+Error in MultiEditR vs. RNA-seq across amplicons
+
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s4f = comparison.df %>%
+  dplyr::group_by(amplicon) %>%
+  dplyr::mutate(ave_reads = mean(Reads), ave_error = mean(abs(diff))) %>%
+  ggplot(aes(x = reorder(amplicon, ave_reads), y = abs(diff), fill = ave_reads)) +
+  scale_fill_gradientn(colors = c("#2c7bb6", "#ffffbf", "#d7191c")) +
+  geom_point(position = position_jitter(0.25), alpha = 0.3) +
+  scale_y_log10(labels = scales::trans_format("log10", scales::math_format(10^.x)), breaks = c(10^(-5:0))) +
+  xlab("Transcript")  +
+  ylab("Absolute value of error\n(MultiEditR - RNA-seq)") +
+  labs(fill = "Average Reads") +
+  geom_violin(alpha = 0.8) +
+  theme_classic(base_size = 24) +
+  theme(axis.text.x = element_text(hjust = 1, angle = 45), aspect.ratio = 1.2)
+
+figure_s4f
+```
+
+## Supplementary Figure S5
+
+### Supplementary Figure S5a
+
+```{r, fig.width=10,fig.height=10, message=FALSE}
+## WITHOUT filtering ##
+
+# n_species = 2
+
+# n_sites = 10
+amplicon_merged_data %>%
+  dplyr::select(amplicon) %>%
+  dplyr::distinct() %>%
+  nrow()
+
+# n_unique_bases = 849
+amplicon_merged_data %>%
+  dplyr::select(Position, Region) %>%
+  dplyr::distinct() %>%
+  nrow()
+
+# n_replicates = 1
+
+# ave_reads = 6248
+amplicon_merged_data %>%
+  .$Amplicon_Reads %>%
+  mean
+
+# median_reads = 7748
+amplicon_merged_data %>%
+  .$Amplicon_Reads %>%
+  median
+
+## WITH filtering ##
+# n_species = 2
+
+# n_sites = 10
+filtered_amplicon_merged_data %>%
+  dplyr::select(amplicon) %>%
+  dplyr::distinct() %>%
+  nrow()
+
+# n_unique_bases = 205
+filtered_amplicon_merged_data %>%
+  dplyr::select(Position, Region) %>%
+  dplyr::distinct() %>%
+  nrow()
+
+# n_replicates = 1
+
+# ave_reads = 5944
+filtered_amplicon_merged_data %>%
+  .$Amplicon_Reads %>%
+  mean
+
+# median_reads = 7340
+filtered_amplicon_merged_data %>%
+  .$Amplicon_Reads %>%
+  median
+
+figure_s5a = tibble(Metric = c("Species", "Transcript regions", "Replicates", "Unique bases", "Mean coverage", "Median coverage"),
+                    Unfiltered = c(2, 10, 1, 849, "6248 reads", "7748 reads"),
+                    `Filtered` = c(2, 10, 1, 205, "5944 reads", "7340 reads"))
+
+figure_s5a %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+### Supplementary Figure S5b
+Read depth of RNA-seq compared to Amplicon-seq samples
+```{r, fig.width=30,fig.height=10, message=FALSE}
+figure_s5b = amplicon_merged_data %>%
+  dplyr::select(amplicon, Reads, Amplicon_Reads) %>%
+  dplyr::rename(`RNA-seq` = Reads, `Amplicon-seq` = Amplicon_Reads) %>%
+  gather(Method, Reads, `RNA-seq`:`Amplicon-seq`) %>%
+  mutate(Method = factor(Method, levels = c("RNA-seq", "Amplicon-seq"))) %>%
+  bind_rows(., amplicon_merged_data %>%
+              dplyr::select(amplicon, Reads, Amplicon_Reads) %>%
+              dplyr::rename(`RNA-seq` = Reads, `Amplicon-seq` = Amplicon_Reads) %>%
+              gather(Method, Reads, `RNA-seq`:`Amplicon-seq`) %>%
+              mutate(Method = factor(Method, levels = c("RNA-seq", "Amplicon-seq"))) %>%
+              mutate(amplicon = "TOTAL")) %>%
+  ggplot(aes(x = amplicon, y = Reads, fill = Method)) +
+  # geom_point(pch = 21, position = position_dodge(0.9)) +
+  # geom_violin(alpha = 0.9) +
+  geom_point(position = position_dodge(0.9), alpha = 0.1) +
+  geom_bar(stat = "summary", fun.y = "median", color = "black", alpha = 0.5, position = "dodge") +
+  scale_y_log10() +
+  xlab("Transcript")  +
+  facet_grid(.~amplicon, space = "free", scales = "free_x") +
+  theme_classic(base_size = 36) +
+  theme(aspect.ratio = 1/8)
+
+figure_s5b
+```
+
+### Supplementary Figure S5c
+Demonstration that comparing to amplicon-seq improves across all amplicons except B2m
+```{r, fig.width=30,fig.height=10, message=FALSE}
+figure_s5c = filtered_amplicon_merged_data %>%
+  dplyr::select(amplicon, Reads, Amplicon_Reads, diff, sanger_perc, ngs_perc, amplicon_perc) %>%
+  dplyr::rename(`RNA-seq` = Reads, `Amplicon-seq` = Amplicon_Reads) %>%
+  gather(Method, Reads, `RNA-seq`:`Amplicon-seq`) %>%
+  mutate(Method = factor(Method, levels = c("RNA-seq", "Amplicon-seq"))) %>%
+  mutate(`RNA-seq` = sanger_perc - ngs_perc, `Amplicon-seq` = sanger_perc - amplicon_perc) %>%
+  gather(tmp_method, diff, `RNA-seq`:`Amplicon-seq`) %>%
+  filter(Method == tmp_method) %>%
+  dplyr::select(-tmp_method) %>%
+  mutate(diff = abs(diff)) %>%
+  mutate(diff = {ifelse(diff < 1e-5, 1e-5, diff)}) %>%
+  ggplot(aes(x = amplicon, y = abs(diff), fill = Method)) +
+  geom_point(pch = 21, position = position_dodge(0.9)) +
+  geom_violin(alpha = 0.9) +
+  scale_y_log10(labels = c("0.001%", "0.01%", "0.1%", "1%", "10%", "100%"),
+                breaks = c(1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1),
+                limits = c(1e-5, 1)) +
+  xlab("Transcript")  +
+  ylab("Absolute value of error (MultiEditR - NGS method)") +
+  facet_grid(.~amplicon, space = "free", scales = "free_x") +
+  theme_classic(base_size = 36)+
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        aspect.ratio = 1/8)
+
+figure_s5c
+```
+
+### Supplementary Figure S5d
+Table results for the comparison of each method
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s5d = filtered_amplicon_merged_data %>%
+  dplyr::select(amplicon, Reads, Amplicon_Reads, diff, sanger_perc, ngs_perc, amplicon_perc) %>%
+  dplyr::rename(`RNA-seq` = Reads, `Amplicon-seq` = Amplicon_Reads) %>%
+  gather(Method, Reads, `RNA-seq`:`Amplicon-seq`) %>%
+  mutate(Method = factor(Method, levels = c("RNA-seq", "Amplicon-seq"))) %>%
+  mutate(`RNA-seq` = abs(sanger_perc - ngs_perc), `Amplicon-seq` = abs(sanger_perc - amplicon_perc))  %>%
+  dplyr::group_by(amplicon) %>%
+  dplyr::summarize(p_value = t.test(x =`RNA-seq`, y =`Amplicon-seq`, paired = T, var.equal = T, data = .)[[3]],
+                   diff_mean = t.test(x =`RNA-seq`, y =`Amplicon-seq`, paired = T, var.equal = T, data = .)[[5]]) %>%
+  dplyr::rename(Transcript = amplicon, `P-value` = p_value, `Mean difference` = diff_mean) %>%
+  inner_join(.,amplicon_merged_data %>%
+    group_by(amplicon) %>%
+    dplyr::summarise(`Mean\nRNA-seq Reads` = mean(Reads), `SD RNA-seq Reads` = sd(Reads),
+                    `Mean Amplicon-seq Reads` = mean(Amplicon_Reads), `SD Amplicon-seq Reads` = sd(Amplicon_Reads)
+                    ) %>% dplyr::rename(Transcript = amplicon)
+  ) %>%
+  mutate_if(is.numeric, ~signif(., digits = 3)) %>%
+  mutate(`Mean difference` = scales::percent(`Mean difference`))
+
+
+figure_s5d %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+### Supplementary Figure S5e
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s5e = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "sanger_perc", var2 = "ngs_perc") %>%
+  .[[1]] +
+  ylab("Sanger sequencing (MultiEditR)") +
+  xlab("RNA-seq (REDitools)")
+
+figure_s5e
+```
+
+### Supplementary Figure S5f
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s5f = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "sanger_perc", var2 = "ngs_perc") %>%
+  .[[3]] +
+  theme(legend.position = "none") +
+  ylab("Inaccuracy (MultiEditR - RNA-seq)")
+
+figure_s5f
+```
+
+### Supplementary Figure S5g
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s5g = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "sanger_perc", var2 = "ngs_perc") %>%
+  .[[5]]
+
+figure_s5g %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+### Supplementary Figure S5h
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s5h = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "sanger_perc", var2 = "amplicon_perc") %>%
+  .[[5]]
+
+figure_s5h %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+### Supplementary Figure S5i
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s5i = filtered_amplicon_merged_data %>%
+  plotResults(., var1 = "ngs_perc", var2 = "amplicon_perc") %>%
+  .[[5]]
+
+figure_s5i %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+## Supplementary Figure S6
+
+### Supplementary Figure S6a
+Figure S5ac: Complete 0.1% - 25% ROC MultiEditR
+```{r, fig.width=10,fig.height=10, message=FALSE}
+s6_thresholds = c(0.001, 0.0025, 0.005, 0.0075, 0.01, 0.025, 0.05, 0.075, 0.10, 0.25)
+
+s6ac_data = classification.df %>% 
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "sanger_pvalue",
+         label_var = "amplicon_perc", X = s6_thresholds ) %>%
+  plotROC(., s6_thresholds, decimal_point = 0.01)
+
+figure_s6a = s6ac_data[[1]]
+
+figure_s6a
+```
+
+### Supplementary Figure S6b
+Figure S5bd: Complete 0.1% - 25% ROC REDitools
+```{r, fig.width=10,fig.height=10, message=FALSE}
+s6_thresholds = c(0.001, 0.0025, 0.005, 0.0075, 0.01, 0.025, 0.05, 0.075, 0.10, 0.25)
+ 
+s6bd_data = classification.df%>% 
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "fisher_pvalue",
+         label_var = "amplicon_perc", X = s6_thresholds ) %>%
+  plotROC(., s6_thresholds, decimal_point = 0.01)
+
+figure_s6b = s6bd_data[[1]]
+
+figure_s6b
+```
+
+### Supplementary Figure S6c
+Figure S6ac: Complete 0.1% - 25% ROC MultiEditR
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s6c = s6ac_data[[3]]
+
+figure_s6c %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+### Supplementary Figure S6d
+Figure S6bd: Complete 0.1% - 25% ROC REDitools
+```{r, fig.width=10,fig.height=10, message=FALSE}
+figure_s6d = s6bd_data[[3]]
+
+figure_s6d %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+```
+
+### Supplementary Figure S6e
+Figure S6e: ROC analysis across Read depth
+```{r, fig.width=50,fig.height=10, message=FALSE}
+
+figure_s6e_thresholds = c(0.001, 0.005,  0.01, 0.05, 0.10, 0.25)
+
+
+figure_s6ei_data = classification.df %>% #S6ei
+  filter(Reads <= 70) %>%
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "sanger_pvalue",
+         label_var = "amplicon_perc", X = figure_s6e_thresholds ) %>%
+  plotROC(., figure_s6e_thresholds, decimal_point = 0.01)
+
+figure_s6eii_data = classification.df %>% #S6eii
+  filter(Reads <= 70) %>%
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "fisher_pvalue",
+         label_var = "amplicon_perc", X = figure_s6e_thresholds ) %>%
+  plotROC(., figure_s6e_thresholds, decimal_point = 0.01)
+
+figure_s6eiii_data = classification.df %>% #S6eiii
+  filter(Reads > 70) %>%
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "sanger_pvalue",
+         label_var = "amplicon_perc", X = figure_s6e_thresholds ) %>%
+  plotROC(., figure_s6e_thresholds, decimal_point = 0.01)
+
+figure_s6eiv_data= classification.df %>% #S6eiv
+  filter(Reads > 70) %>%
+  lapply(FUN = analyzeROC,
+         data = .,
+         classifier_var = "fisher_pvalue",
+         label_var = "amplicon_perc", X = figure_s6e_thresholds ) %>%
+  plotROC(., figure_s6e_thresholds, decimal_point = 0.01)
+
+figure_s6ei = figure_s6ei_data[[3]]
+figure_s6eii = figure_s6eii_data[[3]]
+figure_s6eiii = figure_s6eiii_data[[3]]
+figure_s6eiv = figure_s6eiv_data[[3]]
+
+
+figure_s6e.a_classification_data = bind_rows(figure_s6ei, figure_s6eii ) %>%
+  dplyr::rename(threshold = 1) %>%
+  mutate(threshold = as.numeric(gsub("%", "", as.character(threshold)))/100) %>%
+  mutate(classifier_var = factor(classifier_var, levels = rev(c("sanger_pvalue", "fisher_pvalue")))) %>%
+  mutate(read_depth = "≤ 70 RNA-seq reads")
+
+figure_s6e.b_classification_data = bind_rows(figure_s6eiii, figure_s6eiv) %>%
+  dplyr::rename(threshold = 1) %>%
+  mutate(threshold = as.numeric(gsub("%", "", as.character(threshold)))/100) %>%
+  mutate(classifier_var = factor(classifier_var, levels = rev(c("sanger_pvalue", "fisher_pvalue")))) %>%
+  mutate(read_depth = "> 70 RNA-seq reads")
+
+ROC_readdepth_data = bind_rows(figure_s6e.a_classification_data , figure_s6e.b_classification_data)  %>%
+  mutate(classifier_var = {ifelse(classifier_var == "fisher_pvalue", "REDitools", "MultiEditR")}) %>%
+  dplyr::rename(`Area Under Curve (AUC)` = AUC) %>%
+  gather(., key = "metric", value = "value", c(Sensitivity:MCC)) %>%
+  mutate(metric = factor(metric, levels = c("Sensitivity", "Specificity", "Area Under Curve (AUC)", "Youden's J", "MCC"))) %>%
+  # mutate(read_depth = factor(read_depth, levels = unique(read_depth))) %>%
+  mutate(value = {ifelse(is.na(value), 0, value)})
+
+figure_s6e = ROC_readdepth_data %>%
+  ggplot(aes(x = threshold, y = value, color = classifier_var, fill = classifier_var, linetype = read_depth)) + #, fill = read_depth, color = read_depth)) +
+  
+  # annotate(geom = "rect", xmin = 0.04, xmax = 0.3, ymin = 0, ymax = 1.05, color = "black", alpha = 0) +
+  geom_line(stat = "identity", size = 1) +
+  geom_point(pch = 21, size = 3, color = "black") +
+  # annotate(geom = "text", label = "Best use of\nMultiEditR", x = 0.113, y = 0.1, size = 5) +
+  
+  scale_x_log10(labels = scales::percent_format(accuracy = 0.1), breaks = figure_s6e_thresholds) +
+  scale_y_continuous(limits = c(0,1.05), breaks = seq(0,1, 0.2)) +
+  scale_color_manual(values = c("MultiEditR" = "#1b9e77", "REDitools" = "#7570b3")) +
+  scale_fill_manual(values = c("MultiEditR" = "#1b9e77", "REDitools" = "#7570b3")) +
+  ylab("Value of metric") +
+  xlab("Editing detection threshold") +
+  labs(color = "Method", fill = "Method", linetype = "Read Depth") +
+  theme_bw(base_size = 28) +
+  facet_grid(cols = vars(metric), rows = vars(classifier_var)) +
+  theme(panel.grid = element_blank(),
+        aspect.ratio = 1,
+        strip.background = element_blank(),
+        strip.text = element_text(size = 36),
+        axis.text.x = element_text(hjust = 1, angle = 45))
+
+figure_s6e
+```
+
+## Supplementary Figure S7
+
+### Supplementary Figure Figure S7a
+Flow plots from Ricca
+
+### Supplementary Figure Figure S7b
+MultiEditR noise distributions
+
+### Supplementary Figure Figure S7c
+Parameters from ab1 analysis
+```{r}
+lambda.df %>%
+  dplyr::mutate(guide = paste0('\\', guide)) %>%
+  dplyr::mutate_if(is.numeric, ~signif(., 3)) %>%
+  knitr::kable(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"), position='float_left',full_width=F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Arial")
+  
+```
