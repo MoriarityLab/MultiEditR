@@ -1,4 +1,4 @@
-MultiEditR version 1.0.07
+MultiEditR version 1.0.08
 
 Hello! Welcome to MultiEditR! We hope that our program can be of use for your edit detection and quantification needs. Please note that this is a beta version of the application, and as such aspects of it are still under development.
 
