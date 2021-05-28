@@ -1,4 +1,4 @@
-# MultiEditR v1.0.7
+# MultiEditR
  
 The purpose of this software is to detect and quantify base editing events in RNA or DNA. Simply, provide an editing motif or guide RNA protospacer sequence and a .ab1 Sanger sequencing file of an edited region of interest (~300-700bp). MultiEditR will then generate distributions of the expected level of noise based on your sample. From these expectations, EditR assigns a probability that each background peak in your target regions are from noise -- in other a words a *P*-value for it being edited as opposed to noise.
 
@@ -43,22 +43,3 @@ Derek Nedveck, M.S. for his work and mentorship on the original EditR applicatio
 Hill JT, Demarest BL, Bisgrove BW, Su YC, Smith M, Yost HJ. (2014) **Poly Peak Parser: Method and software for identification of unknown indels using Sanger Sequencing of PCR products.** *Developmental Dynamics.* [PMID: 25160973](http://www.ncbi.nlm.nih.gov/pubmed/25160973)
 
 Brinkman EK, Chen T, Amendola M, van Steensel B. (2014) **Easy quantitative assessment of genome editing by sequence trace decomposition.** *Nucleic Acids Research.* doi: 10.1093/nar/gku936
-
-## Troubleshooting
-
-* The motif of interest or gRNA sequence is not matching
-	+ Firstly, try reverse complementing the sequence
-	+ The .ab1 file may be overly noisy, check the "Analysis" tab first, if so you may need to re-sequence your sample
-	+ If there are SNPs within your region of interest, noisy sequencing or other artifacts, replace ambiguous bases with "N"s in your sequence of interest
-		- MultiEditR can use any IUPAC nucleotides for the gRNA input
-		- Additionally, the gRNA sequence length can be extended indefinitely to subset a continous region of interest (e.g. a 30-50 bp region)
-		- However, note that noisy sequencing will yield unreliable results
-* When uploading your .ab1 file the error `<!DOCTYPE HTML><html_lang="en"><head><title>Error</title><style type="text/css">` is given
-	+ Open the .ab1 file in a .ab1 file viewer such as SnapGene Viewer
-	+ Manually delete the 5' and 3' end of the file to create a region of relatively clean sequencing on either side
-	+ Save this edited file as a new .ab1 file, then re-upload to MultiEditR
-* Your sequencing is too noisy to detect an edit
-	+ Try gel extracting your PCR product
-		- Before sending your PCR product for sequencing load 25-50 uL of PCR reaction on a 1% agarose gel in TAE buffer
-		- Run the gel and excise your band, and then purify using a gel extraction kit (Qiagen QIAquick works well)
-		- Elute your sample in water and send to a trusted Sanger sequencing provider (ACGTinc, single pass works well)
