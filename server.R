@@ -1,7 +1,7 @@
 ### server.R for multiEditR
 
 ###########################################################################################
-# Copyright (C) 2018-2019 Mitchell Kluesner (klues009@umn.edu)
+# Copyright (C) 2020-2021 Mitchell Kluesner (klues009@umn.edu)
 #  
 # This file is part of multiEditR (Multiple Edit Deconvolution by Inference of Traces in R)
 # 
@@ -50,12 +50,12 @@ shinyServer(
         need(input$ctrl_file, "Please upload your control sequence file")
       ))
     })
-    
+
     motif.Reactive = reactive({
       # if else things to handle example data loading
       if(input$use_example & (input$motif == "")) {
         return(example_motif)
-      } else if(!is.null(input$motif)) {
+      } else if(input$motif != "") {
         return(input$motif)
       } else return(validate(
         need(input$motif, "Please enter a motif of interest")
@@ -66,7 +66,7 @@ shinyServer(
       # if else things to handle example data loading
       if(input$use_example & (input$wt == "")) {
         return(example_wt)
-      } else if(!is.null(input$wt)) {
+      } else if(input$wt != "") {
         return(input$wt)
       } else return(validate(
         need(input$wt, "Please enter a wt base of interest")
@@ -77,7 +77,7 @@ shinyServer(
       # if else things to handle example data loading
       if(input$use_example & (input$wt == "")) {
         return(example_edit)
-      } else if(!is.null(input$edit)) {
+      } else if(input$edit != "") {
         return(input$edit)
       } else return(validate(
         need(input$edit, "Please enter an edited base of interest")
@@ -180,6 +180,7 @@ shinyServer(
     
     #### Trim dataframes by aligning sample to control ------------------------
     # Reactive object with trimmed sample and control dataframes
+
     trimmedData.Reactive = reactive({
       
       # Align sample_seq to ctrl_seq
@@ -231,10 +232,11 @@ shinyServer(
       
       # Filter the control dataframe on the end trimming alignment
       ctrl_df = filteredData.Reactive()$ctrl_df %>%
-        filter(post_filter_index >= ctrl_trimmed_alignment@subject@range@start) %<>%
+        # error fixed 5.21.2021, use of %<>% not permitted
+        filter(post_filter_index >= ctrl_trimmed_alignment@subject@range@start) %>%
         filter(post_filter_index <= ctrl_trimmed_alignment@subject@range@start + ctrl_trimmed_alignment@subject@range@width - 1) %>%
         mutate(post_aligned_index = 1:NROW(index))
-      
+
       ### Generate post-filter, post-aligned sequence
       ctrl_seq = ctrl_df$base_call %>% paste0(., collapse = "")
       samp_seq = sample_df$max_base %>% paste0(., collapse = "")
@@ -401,7 +403,7 @@ shinyServer(
         gather(EI_base, EI_sanger, AEI_sanger:TEI_sanger) %>%
         mutate(EI_base = gsub("EI_sanger", "", EI_base)) %>%
         dplyr::select(EI_base, EI_sanger)  %>%
-        dplyr::rename(Edit =  EI_base, MEEI = EI_sanger) %>%
+        dplyr::rename(Edit =  EI_base, MEI = EI_sanger) %>%
         filter(grepl(wt.Reactive(), Edit)) %>%
         distinct()
       
@@ -510,9 +512,12 @@ shinyServer(
         statisticalAnalysis.Reactive()$sample_df,
         filteredData.Reactive()$pre_cross_align_sample_df,
         statisticalAnalysis.Reactive()$output_sample_alt,
-        sample_df.Reactive()
+        sample_df.Reactive(),
+        statisticalAnalysis.Reactive()$sample_alt
       )
     })
+    
+    
     
     ## Plot summary of editing data
     output$plotEditingData = renderPlot({
@@ -527,7 +532,7 @@ shinyServer(
     ## Render table summarizing editing data
     output$tableEditingIndexData = renderTable({
       statisticalAnalysis.Reactive()$sanger_EI
-    })
+    }, digits = 4) # digits = 4 dictates enough significant figures
     
     ## Render table with ZAGA parameters for bases of interest
     output$tableZAGAParameters = renderTable({
@@ -535,61 +540,150 @@ shinyServer(
         filter(grepl(edit.Reactive(), Base))
     })
     
-    ## Render plot of sample chromatogram
-    output$sampleChromatogram = renderPlot({
-      
-      sample_indices = statisticalAnalysis.Reactive()$sample_alt %>%
-        filter(motif_id == input$motif_id) %>%
-        #filter(motif_id == event_data("plotly_click", source = "select")) %>%
-        .$index %>%
-        quantile(., c(0,1))
+    sampleIndices.Reactive = reactive({
+      sampleIndices = {
+        if(!input$usePoint & is.null(input$plotTrimmedSample2.Brush$xmin)) {
+        return(need(validate(input$plotTrimmedSample2.Brush), "Please highlight points on the plot."))
+      } else if(!input$usePoint) {
+        
+        # Use brush values
+        c(input$plotTrimmedSample2.Brush$xmin, input$plotTrimmedSample2.Brush$xmax) %>%
+          round()
+        
+      } else if(input$usePoint & (is.null(input$plotTrimmedSample2.Click))){
+        return(need(validate(input$plotTrimmedSample2.Click), "Please click a position of interest on the plot."))
+      } else if(input$usePoint & !input$useIndex){
+        
+        # Use click values for motifs
+        motifId.Click = statisticalAnalysis.Reactive()$sample_alt %>%
+          slice(which.closest(index, round(input$plotTrimmedSample2.Click$x))) %>% 
+          pull(motif_id)
+        
+        indices = statisticalAnalysis.Reactive()$sample_alt %>%
+          filter(motif_id == motifId.Click) %>%
+          .$index %>%
+          quantile(., c(0,1), names = F)
+        
+        c(indices[1] - input$pad, indices[2] + input$pad)
 
-      sampleChromatogram.Plot = sample_sanger.Reactive() %>%
+      } else if(input$usePoint & input$useIndex){
+        
+        index = round(input$plotTrimmedSample2.Click$x)
+        c(index - input$pad, index + input$pad)
+      }
+      }
+      
+      controlIndices = statisticalAnalysis.Reactive()$sample_df %>%
+        filter(index %in% sampleIndices) %>%
+        pull(ctrl_index)
+      
+     return(as.numeric(c(sampleIndices, controlIndices)))
+      
+    })
+
+    output$print = renderText({
+      if(is.null(input$plotTrimmedSample2.Brush) & !input$usePoint){
+        
+        "HIGHLIGHT SELECTION:\nHighlight positions of interest on the plot, or use point selection"
+      } else if((is.null(input$plotTrimmedSample2.Click) | !is.null(input$plotTrimmedSample2.Brush$xmax)) & input$usePoint) {
+        if(!input$useIndex)
+          {"MOTIF SELECTION:\nSelect a single motif of interest on the plot, or use highlight selection"} else
+          {"BASE SELECTION:\nSelect a single base of interest on the plot, or use highlight selection"}
+      } else {
+        sig_indices = statisticalAnalysis.Reactive()$output_sample_alt %>%
+          filter(sig) %>%
+          .$index
+        
+        sequence = statisticalAnalysis.Reactive()$sample_df %>%
+          filter(ctrl_index >= sampleIndices.Reactive()[3] & ctrl_index <= sampleIndices.Reactive()[4]) %>%
+          dplyr::select(index, ctrl_max_base) %>%
+          mutate(ctrl_max_base = as.character(ctrl_max_base)) %>%
+          mutate(sig_max_base = {ifelse(index %in% sig_indices, paste0("[",ctrl_max_base,"]"), ctrl_max_base)}) %>%
+          .$sig_max_base %>%
+          paste0(., collapse = "")
+        
+        sample_positions = paste(sampleIndices.Reactive()[1:2], sep = " - ", collapse = " - ")
+        control_positions = paste(sampleIndices.Reactive()[3:4], sep = " - ", collapse = " - ")
+        length = gsub("[|]", "", sequence) %>% nchar
+        
+        paste0(
+          "REGION SELECTED:\n",
+          "Sequence:\t", sequence, "\n",
+          "Sample Position:\t", sample_positions, "\n",
+          "Control Position:\t", control_positions, "\n",
+          "Length:\t", length, " nt"
+        )
+      }
+      })
+    
+    ## Define a sample chromatogram reactive to an action button
+    sampleChromatogram.Plot = eventReactive(input$updateChromatograms, {
+      sample_sanger.Reactive() %>%
         # geom_chromotagram:
         # inputs a sanger object and the start and end indices of interest
         # returns a ggplot object consisting of the trace and the percent bases of interest
-        geom_chromatogram(., sample_indices[1] - input$pad, sample_indices[2] + input$pad)
-      
-      return(sampleChromatogram.Plot)
-      
+        geom_chromatogram(., sampleIndices.Reactive()[1], sampleIndices.Reactive()[2])
+
     })
     
-    ## Render plot of control chromatogram
-    output$ctrlChromatogram = renderPlot({
-      
-      ctrl_indices = statisticalAnalysis.Reactive()$sample_alt %>%
-        filter(motif_id == input$motif_id) %>%
-        #filter(motif_id == event_data("plotly_click", source = "select")) %>%
-        .$ctrl_index %>%
-        quantile(., c(0,1))
-      
-      if(!input$use_fasta) {
+    ## Render plot of reactive sample chromatogram
+    output$sampleChromatogram = renderPlot({
+      sampleChromatogram.Plot()
+    })
+    
+    ## Define a control chromatogram reactive to an action button
+    controlChromatogram.Plot = eventReactive(input$updateChromatograms, {
+      if(input$use_fasta) {
+        return(need(validate(ctrlChromatogram.Plot(), "Provide a control .ab1 file to generate a chromatogram")))
+      } else {
         ctrlChromatogram.Plot = ctrl_sanger.Reactive() %>%
-          # geom_chromotagram:
-          # inputs a sanger object and the start and end indices of interest
-          # returns a ggplot object consisting of the trace and the percent bases of interest
-          geom_chromatogram(., ctrl_indices[1] - input$pad, ctrl_indices[2] + input$pad)
-      } else {ctrlChromatogram.Plot = NULL}
-      
-      return(ctrlChromatogram.Plot)
-      
+          geom_chromatogram(., sampleIndices.Reactive()[3], sampleIndices.Reactive()[4])
+        return(ctrlChromatogram.Plot)
+      }
+    })
+    
+    ## Render plot of reactive sample chromatogram
+    output$ctrlChromatogram = renderPlot({
+      controlChromatogram.Plot()
     })
     
     ## Render plot of the trimmed sample for indexing motifs
-    output$plotTrimmedSample2 = renderPlotly({
+    output$plotTrimmedSample2 = renderPlot({
       plotTrimmedSample(
         statisticalAnalysis.Reactive()$sample_df,
         filteredData.Reactive()$pre_cross_align_sample_df,
         statisticalAnalysis.Reactive()$output_sample_alt,
-        sample_df.Reactive()
+        sample_df.Reactive(),
+        statisticalAnalysis.Reactive()$sample_alt
       )
     })
-    
-    ## Render table of sample data for plotting
-    output$print = renderPrint(event_data("plotly_click", source = "select"))
-    
+  
     ## Render cox plot
     output$CoxPlot = renderPlot(geom_coxplot(editingData.Reactive()))
+    
+    ## Render app log
+    output$log = renderText(
+      # statisticalAnalysis.Reactive()$sample_alt
+      paste(
+        "PARAMETERS USED:",
+        paste0("sample file:\t", sample.Reactive()),
+        paste0("control file:\t", ctrl.Reactive()),
+        paste0("edit motif:\t", motif.Reactive()),
+        paste0("edit(s):\t", wt.Reactive(), ">", edit.Reactive()),
+        "",
+        "OPERATIONS LOG:",
+        logError(ctrl_alignment.Reactive(), "Control data loading"),
+        logError(sample_alignment.Reactive(), "Sample data loading"),
+        logError(filteredData.Reactive(), "Data trimming on phred score"),
+        logError(trimmedData.Reactive(), "Sample data alignment to control data"),
+        logError(statisticalAnalysis.Reactive(), "Edit detection and quantification"),
+        logError(editingData.Reactive(), "Editing table generation"),
+        logError(sampleIndices.Reactive(), "Sample and control indices selection"),
+        logError(sampleChromatogram.Plot(), "Sample chromatogram generation"),
+        logError(controlChromatogram.Plot(), "Control chromatogram generation"),
+      sep = "\n"
+      )
+      )
 
   }
 )
