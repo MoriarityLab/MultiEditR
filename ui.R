@@ -1,7 +1,7 @@
 ### ui.R for multiEditR
 
 ###########################################################################################
-# Copyright (C) 2018-2019 Mitchell Kluesner (klues009@umn.edu)
+# Copyright (C) 2020-2021 Mitchell Kluesner (klues009@umn.edu)
 #  
 # This file is part of multiEditR (Multiple Edit Deconvolution by Inference of Traces in R)
 # 
@@ -10,10 +10,11 @@
 ###########################################################################################
 
 # EditR UI
-version = "1.0.7"
-update = "May 24th, 2020"
+version = "1.1.0"
+update = "May 28th, 2021"
 
 shinyUI(
+  
   fluidPage(
     theme = shinythemes::shinytheme("cerulean"),
     
@@ -32,7 +33,7 @@ shinyUI(
       # actionButton(inputId = "actionButton", label = "Update"),
       p(),
       checkboxInput(inputId = "use_example",
-                    label = "Click to see an example."),
+                    label = "Click to see an example.", value = FALSE),
       fileInput(inputId = 'sample_file',
                 label = 'Choose a .ab1 sample file'),
       checkboxInput(inputId = "use_fasta",
@@ -42,14 +43,17 @@ shinyUI(
       # textInput(inputId = 'sample_name',
       #           label = 'Enter a sample name'),
       textInput(inputId = 'motif',
-                label = 'Enter a motif of interest'),
+                label = 'Enter a motif of interest',
+                value = ""),
       p("Motif is combatible of a sequence of any length and composition, including IUPAC ambiguity codes. (e.g. A, YAR, ACGTYGRGTACA)"),
       br(),
       textInput(inputId = 'wt',
-                label = 'Enter the WT base'),
+                label = 'Enter the WT base',
+                value = ""),
       p("Please enter one base A, C, G, or T under investigation to be edited."),
       textInput(inputId = 'edit',
-                label = 'Enter the edited base'),
+                label = 'Enter the edited base',
+                value = ""),
       p("Multiple edits of interest (e.g. C > T or G) can be specified by separating bases with | (e.g. T|G)"),
       br(),
       numericInput(inputId = 'phred',
@@ -60,12 +64,6 @@ shinyUI(
                 value = 0.0001),
       checkboxInput(inputId = "adjust_p",
                     label = "Click to apply a multiple comparisons correction."),
-      numericInput(inputId = 'motif_id',
-                   label = 'Enter desired motif instance to examine',
-                   value = 1),
-      numericInput(inputId = 'pad',
-                   label = 'Enter desired padding to chromatogram',
-                   value = 5),
     p(),
     downloadButton("downloadRawData", "Download Raw Data")
   ),
@@ -97,7 +95,7 @@ shinyUI(
                tableOutput("tableEditingData"),
                p("This table shows descriptive statistics of the detected edits."),
                br(),
-               h2("MultiEditR Editing Index (MEEI)"),
+               h2("MultiEditR Editing Index (MEI)"),
                tableOutput("tableEditingIndexData"),
                p("This table shows the editing index for each base."),
                br(),
@@ -111,18 +109,34 @@ shinyUI(
         h1("Chromatograms of sample and control files"),
         p("Use the bottom interactive plot to choose your specific motif of interest instance. Then change the input motif instance on the left sidepanel."),
         br(),
-        h2("Sample"),
-        p("The motif of interest is centered in the middle of the chromatogram. Additional bases are added based on the desired padding parameter in the left sidepanel. Default is 5 bases."),
-        plotOutput("sampleChromatogram"),
-        br(),
-        h2("Control"),
-        p("The motif of interest is centered in the middle of the chromatogram. Additional bases are added based on the desired padding parameter in the left sidepanel. Default is 5 bases."),
-        p("If a .fasta file is used as the control this plot will remain blank."),
-        plotOutput("ctrlChromatogram"),
-        br(),
         h2("Edits and their significance"),
         p("Highlight over points of interest to determine their motif instance number, which can then be entered in the side panel. Points with solid color represent significant edits, while translucent points are not called as significant."),
-        plotly::plotlyOutput("plotTrimmedSample2")
+        plotOutput("plotTrimmedSample2",
+                   click = "plotTrimmedSample2.Click",
+                   brush = brushOpts(
+                     id = "plotTrimmedSample2.Brush"
+                   )
+        ),
+        verbatimTextOutput('print'),
+        br(),
+        checkboxInput(inputId = "usePoint", label = "Use point selection instead of highlight selection", value = FALSE),
+        conditionalPanel(
+          condition = "input.usePoint==true",
+          checkboxInput(inputId = "useIndex", label = "Use base position selection instead of motif selection", value = FALSE),
+          numericInput(inputId = 'pad',
+                       label = 'Enter desired padding to chromatogram',
+                       value = 5)
+        ),
+        actionButton("updateChromatograms", "Update Chromatograms"),
+        h2("Sample Chromatogram"),
+        p("The motif of interest is centered in the middle of the chromatogram. Additional bases are added based on the desired padding parameter above. Default is 5 bases."),
+        plotOutput("sampleChromatogram"),
+        br(),
+        h2("Control Chromatogram"),
+        p("The motif of interest is centered in the middle of the chromatogram. Additional bases are added based on the desired padding parameter above. Default is 5 bases."),
+        p("If a .fasta file is used as the control this plot will remain blank."),
+        plotOutput("ctrlChromatogram"),
+        br()
       ),
       
       tabPanel("Raw Data", 
@@ -130,10 +144,12 @@ shinyUI(
                  column(12, DT::dataTableOutput('rawData')
                  )
                )
-      ),
-      tabPanel("Test",
-      verbatimTextOutput("print"),
-      plotOutput("CoxPlot")
+      )
+      ,
+      tabPanel("Logs",
+      h2("Operations Log"),
+      verbatimTextOutput("log"),
+      includeMarkdown("troubleshooting.md")
       )
     )
   )
