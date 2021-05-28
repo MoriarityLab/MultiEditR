@@ -604,7 +604,7 @@ shinyServer(
         
         sample_positions = paste(sampleIndices.Reactive()[1:2], sep = " - ", collapse = " - ")
         control_positions = paste(sampleIndices.Reactive()[3:4], sep = " - ", collapse = " - ")
-        length = gsub("[|]", "", sequence) %>% nchar
+        length = gsub("\\[|\\]", "", sequence) %>% nchar
         
         paste0(
           "REGION SELECTED:\n",
