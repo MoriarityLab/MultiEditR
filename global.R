@@ -1,13 +1,18 @@
 ### global.R for multiEditR
 
 ###########################################################################################
-# Copyright (C) 2018-2019 Mitchell Kluesner (klues009@umn.edu)
+# Copyright (C) 2020-2021 Mitchell Kluesner (klues009@umn.edu)
 #  
 # This file is part of multiEditR (Multiple Edit Deconvolution by Inference of Traces in R)
 # 
 # Please only copy and/or distribute this script with proper citation of 
 # multiEditR publication
 ###########################################################################################
+
+### Options
+# turn on universal error message:
+# "Error: An error has occurred. Check your logs or contact the app author for clarification."
+options(shiny.sanitize.errors = TRUE)
 
 ### Libraries
 library(sangerseqR)
@@ -19,6 +24,7 @@ library(readr)
 library(shiny)
 library(plotly)
 library(shinythemes)
+library(berryFunctions)
 
 ### Data
 bases = c("A", "C", "G", "T")
@@ -53,6 +59,9 @@ phred_scores = data.frame(stringsAsFactors=FALSE,
 )
 
 ### Functions
+# Check that a string is IUPAC notation
+checkIUPAC = function(x){all(strsplit(x, "")[[1]] %in% c("A", "C", "G", "T", "U", "R", "Y", "S", "W", "K", "M", "B", "D", "H", "V", "N"))}
+
 # convert nucleotide to a factor
 nucleotide_factor = function(x){factor(x, levels = c("A", "C", "G", "T"))}
 
@@ -495,14 +504,15 @@ plotRawSample = function(raw_sample_df, sample_alt, pre_cross_align_sample_df){
 }
 
 # Function for plotting trimmed sample data
-plotTrimmedSample = function(sample_df, pre_cross_align_sample_df, output_sample_alt, raw_sample_df){
+plotTrimmedSample = function(sample_df, pre_cross_align_sample_df, output_sample_alt, raw_sample_df, sample_alt){
     sample_df %>%
       mutate(perc = (100-ctrl_max_base_perc) %>% round(., 0)) %>%
       ggplot(aes(x = index, y = perc)) +
       geom_line() +
       scale_y_continuous(limits = c(0,100), breaks = seq(0,100, 10), expand = c(0,0)) +
       scale_x_continuous(limits = c(0, max(raw_sample_df$index)), expand = c(0,0)) +
-      #geom_bar(data = sample_alt, aes(x = index, y = 100), stat = "identity", fill = "lightblue", color = "lightblue") +
+      # geom_bar(data = sample_alt, aes(x = index, y = 100), stat = "identity", fill = "#53BCC2", color = "#53BCC2", alpha = 0.1) +
+      # geom_bar(data = output_sample_alt, aes(x = index, y = 100), stat = "identity", fill = "lightblue", color = "lightblue") +
       geom_rect(xmin = min(pre_cross_align_sample_df$index), ymin = 0,
                 xmax = max(pre_cross_align_sample_df$index), ymax = 100,
                 fill = "white", color = "black", alpha = 0) +
@@ -754,3 +764,18 @@ geom_coxplot = function(editingData){
           axis.ticks = element_blank())
 }
 
+# Define logError function
+# This function is used to log application errors for troubleshooting
+logError = function(expr, step){
+  require(berryFunctions)
+  if(!berryFunctions::is.error(expr))
+  {paste0(step, " is successful.")} else 
+  {paste0("*Error: ", step, " failed.*")}
+}
+
+# Define which.closest
+# A function to calcualte which value in a string is the closest
+which.closest = function (vec, x) 
+{
+  which.min(abs(vec - x))
+}
