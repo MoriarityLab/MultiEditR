@@ -1,7 +1,7 @@
 ### dependencies.R for multiEditR
 
 ###########################################################################################
-# Copyright (C) 2018-2019 Mitchell Kluesner (klues009@umn.edu)
+# Copyright (C) 2020-2021 Mitchell Kluesner (klues009@umn.edu)
 #  
 # This file is part of multiEditR (Multiple Edit Deconvolution by Inference of Traces in R)
 # 
@@ -29,15 +29,18 @@ install.packages("gamlss")
 install.packages("BiocManager")
 install.packages("DT")
 install.packages("grDevices")
+install.packages("berryFunctions")
 
 # Bioconductor packages
 # Updated 4.7.19 due to error with Bioconductor packages
 # Updated again 4.30.19
+
 # Run this code chunk in terminal first
 #
-  # options(repos = BiocManager::repositories())
-  # source("https://bioconductor.org/biocLite.R")
+# options(repos = BiocManager::repositories())
+# source("https://bioconductor.org/biocLite.R")
 #
+# rsconnect::deployApp("/Users/kluesner/Desktop/Research/EditR/multiEditR/program/working_branch/MultiEditR")
 
 BiocManager::install("Biostrings")
 BiocManager::install("sangerseqR")
