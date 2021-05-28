@@ -1,4 +1,4 @@
-MultiEditR version 1.0.08
+MultiEditR version 1.1.0
 
 Hello! Welcome to MultiEditR! We hope that our program can be of use for your edit detection and quantification needs. Please note that this is a beta version of the application, and as such aspects of it are still under development.
 
@@ -22,6 +22,7 @@ library(readr)
 library(shiny)
 library(plotly)
 library(shinythemes)
+library(berryFunctions)
 
 3) Determine the directory of the MultiEditR app on your computer. It will look something like this:
 
