@@ -26,6 +26,7 @@ library(plotly)
 library(shinythemes)
 library(berryFunctions)
 library(shinycssloaders)
+library(markdown)
 library(multieditR)
 
 
