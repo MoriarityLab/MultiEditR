@@ -829,6 +829,9 @@ shinyServer(
     output$render_and_dl <- downloadHandler(
       filename = "batch_report.html",
       content = function(file) {
+        # to show loading message
+        showModal(modalDialog("Preparing Report...(please expect 1-3 minutes depending on the number of samples)", footer=NULL))
+        on.exit(removeModal())
         # Copy the report file to a temporary directory before processing it, in
         # case we don't have write permissions to the current working dir (which
         # can happen when deployed)
