@@ -25,6 +25,9 @@ library(shiny)
 library(plotly)
 library(shinythemes)
 library(berryFunctions)
+library(shinycssloaders)
+library(multieditR)
+
 
 ### Data
 bases = c("A", "C", "G", "T")
