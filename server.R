@@ -788,6 +788,8 @@ shinyServer(
       req(c(input$batch_parameters, input$batch_files))
       if (nrow(missing_files()) == 0){
         all_results = analysis()
+        # next line is to remove failed samples from table
+        all_results = all_results[sapply(all_results, FUN = function(x){x$completed})]
         main_table = lapply(all_results, FUN = function(x){x[[1]]}) %>% do.call(rbind, .)
         main_table = main_table[,c("sample_name","target_base","ctrl_max_base",
                                    "A_perc","A_sig",

@@ -209,6 +209,7 @@ shinyUI(
                                                                   uiOutput('render_and_dl_button'),
                                                                   HTML("<br>"),
                                                                   h2("Combined Results Table:"),
+                                                                  em("note: failed samples do not appear in this table. Check the downloadable report if samples in the parameters sheet do not appear here."),
                                                                   shinycssloaders::withSpinner(
                                                                     DT::dataTableOutput("combined_results_table")
                                                                   ),
