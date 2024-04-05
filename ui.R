@@ -183,8 +183,7 @@ shinyUI(
                             tabsetPanel(type = "tabs",
                                         tabPanel("Instructions",
                                                  fluidPage(
-                                                   htmltools::tags$iframe(src = "batch_instructions.html", 
-                                                                          width = '100%',  height = 1000,  style = "border:none;"))
+                                                   htmltools::includeHTML("www/batch_instructions.html"))
                                         ),
                                         tabPanel("Analysis",
                                                  h1("Batch Analysis"),
@@ -213,6 +212,11 @@ shinyUI(
                                                                   shinycssloaders::withSpinner(
                                                                     DT::dataTableOutput("combined_results_table")
                                                                   ),
+                                                 )
+                                        ),
+                                        tabPanel("FAQ",
+                                                 fluidPage(
+                                                   htmltools::includeMarkdown(path = "www/FAQ.md")
                                                  )
                                         )
                             )
