@@ -183,7 +183,15 @@ shinyUI(
                             tabsetPanel(type = "tabs",
                                         tabPanel("Instructions",
                                                  fluidPage(
-                                                   htmltools::includeHTML("www/batch_instructions.html"))
+                                                   tags$iframe(src = "batch_instructions.html",
+                                                               allowfullscreen = "true",
+                                                               seamless = NA,
+                                                               width = 800,
+                                                               height = 4800,
+                                                               scrolling = "no",
+                                                               frameborder = 0)
+                                                   #htmltools::includeHTML("www/batch_instructions.html")
+                                                   )
                                         ),
                                         tabPanel("Analysis",
                                                  h1("Batch Analysis"),
