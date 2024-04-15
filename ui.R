@@ -183,8 +183,15 @@ shinyUI(
                             tabsetPanel(type = "tabs",
                                         tabPanel("Instructions",
                                                  fluidPage(
-                                                   htmltools::tags$iframe(src = "batch_instructions.html", 
-                                                                          width = '100%',  height = 1000,  style = "border:none;"))
+                                                   tags$iframe(src = "batch_instructions.html",
+                                                               allowfullscreen = "true",
+                                                               seamless = NA,
+                                                               width = 800,
+                                                               height = 4800,
+                                                               scrolling = "no",
+                                                               frameborder = 0)
+                                                   #htmltools::includeHTML("www/batch_instructions.html")
+                                                   )
                                         ),
                                         tabPanel("Analysis",
                                                  h1("Batch Analysis"),
@@ -213,6 +220,11 @@ shinyUI(
                                                                   shinycssloaders::withSpinner(
                                                                     DT::dataTableOutput("combined_results_table")
                                                                   ),
+                                                 )
+                                        ),
+                                        tabPanel("FAQ",
+                                                 fluidPage(
+                                                   htmltools::includeMarkdown(path = "www/FAQ.md")
                                                  )
                                         )
                             )

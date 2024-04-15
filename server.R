@@ -691,7 +691,7 @@ shinyServer(
     ######
     # reads the uploaded parameters excel sheet into a reactive
     # with just basenames for seq files
-    multieditR_params <- reactive({
+    multiEditR_params <- reactive({
       req(input$batch_parameters)
       dat = readxl::read_excel(input$batch_parameters$datapath)
       dat
@@ -700,7 +700,7 @@ shinyServer(
     # shows the parameters table you uploaded
     output$parameter_table <- renderTable({
       req(input$batch_parameters)
-      (multieditR_params())
+      (multiEditR_params())
     })
     
     # makes the sequence file names have the full path (on the server)
@@ -708,7 +708,7 @@ shinyServer(
     params = reactive({
       req(c(input$batch_parameters, input$batch_files))
       if (nrow(missing_files()) == 0){      
-        params = add_paths(multieditR_params(), input$batch_files)
+        params = add_paths(multiEditR_params(), input$batch_files)
         params$sample_file = params$sample_path
         params$ctrl_file = params$ctrl_path
         params
@@ -730,10 +730,10 @@ shinyServer(
     
     # determines from the parameters sheet what sequence files are needed
     sequence_files_required <- reactive({
-      req(c(multieditR_params()))
+      req(c(multiEditR_params()))
       #print(input$batch_files$name)
-      sample_files = multieditR_params()$sample_file
-      control_files = multieditR_params()$ctrl_file
+      sample_files = multiEditR_params()$sample_file
+      control_files = multiEditR_params()$ctrl_file
       needed_files = unique(c(sample_files, control_files))
       needed_files = data.frame(`Sequence Files Needed:` = needed_files)
       needed_files
@@ -758,10 +758,10 @@ shinyServer(
       missing_files()
     })
     
-    # shows button to run multieditR, but only if there aren't missing seq files
+    # shows button to run multiEditR, but only if there aren't missing seq files
     output$run_button <- renderUI({
       if (!is.null(missing_files()) && nrow(missing_files()) == 0){
-        actionButton("run_batch_mode", "Run multieditR")
+        actionButton("run_batch_mode", "Run multiEditR")
       }
     })
     
@@ -778,7 +778,7 @@ shinyServer(
       req(c(input$batch_parameters, input$batch_files))
       if (nrow(missing_files()) == 0){
         my_params = params()
-        all_results = multieditR::detect_edits_batch(my_params)
+        all_results = multiEditR::detect_edits_batch(my_params)
         all_results
       }
     })    
@@ -837,7 +837,7 @@ shinyServer(
         # Copy the report file to a temporary directory before processing it, in
         # case we don't have write permissions to the current working dir (which
         # can happen when deployed)
-        rmd_loc = paste0(system.file(package = "multieditR"),
+        rmd_loc = paste0(system.file(package = "multiEditR"),
                          "/batch_report_template.Rmd")
         temp_dir <- tempdir()
         temp_rmd_loc <- file.path(temp_dir, "batch_report_template.Rmd")
